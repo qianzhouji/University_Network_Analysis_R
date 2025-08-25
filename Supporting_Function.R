@@ -5,6 +5,7 @@ library(ggplot2)
 library(readr)
 library(showtext)
 library(dplyr)
+library(glue)
 
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 #函数：对Bootstrap结果边权绝对值最高的TopN进行置信区间可视化————————————————————————————————————————————————————————————————————————————————————
@@ -1004,12 +1005,23 @@ run_mgm_per_condition <- function(
   
   # 如果没有传入 type_vec 和 level_vec，则自动推断
   if (is.null(type_vec)) {
-    type_vec <- ifelse(sapply(data_mat, is.factor), "c", "g")
+    # 对矩阵/数据框逐列检查：若为因子或所有非NA值均为整数，判定为分类变量
+    type_vec <- sapply(seq_len(ncol(data_mat)), function(i) {
+      col_i <- data_mat[, i]
+      col_i <- col_i[!is.na(col_i)]
+      is_categorical <- is.factor(col_i) || all(col_i == round(col_i))
+      if (is_categorical) "c" else "g"
+    })
     cat("type_vec 已自动推断。\n")
   }
-  
+
   if (is.null(level_vec)) {
-    level_vec <- sapply(data_mat, function(x) length(unique(x)))
+    level_vec <- sapply(seq_len(ncol(data_mat)), function(i) {
+      col_i <- data_mat[, i]
+      col_i <- col_i[!is.na(col_i)]
+      is_categorical <- is.factor(col_i) || all(col_i == round(col_i))
+      if (is_categorical) length(unique(col_i)) else 1
+    })
     cat("level_vec 已自动推断。\n")
   }
   
@@ -1403,10 +1415,8 @@ multi_NCT_compare <- function(
     if (!is.null(cont_cols)) D <- D[, cont_cols, drop = FALSE]
     if (scale_data) {
       D <- scale(D)
-    } else {
-      D <- as.matrix(D)
     }
-    return(D)
+    return(as.matrix(D))
   }
   data_subsets_prep <- lapply(data_subsets, prep_one)
   
@@ -1446,52 +1456,66 @@ multi_NCT_compare <- function(
     
     # ---- 估计器设置（关键改造）----
     # NCT 支持 estimator = "EBICglasso" 或 "glasso"
-    nct_args <- list(
-      data1 = X1, data2 = X2,
-      it = it,
-      paired = paired,
-      test.edges = test_edges,
-      edges = "all",
-      test.centrality = test_centrality,
-      centrality = centrality,
-      estimator = estimator,
-      AND = AND,
-      progressbar = verbose
-    )
-    
+    # ---- 直接调用 NCT 避免 do.call 引发的 match.call 清洗错误 ----
     if (estimator == "EBICglasso") {
-      nct_args$gamma <- gamma  # 仅 EBICglasso 用
-    } else if (estimator == "glasso") {
+      nct_call <- quote(NCT(
+        data1 = X1, data2 = X2,
+        it = it,
+        paired = paired,
+        test.edges = test_edges,
+        edges = "all",
+        test.centrality = test_centrality,
+        centrality = centrality,
+        estimator = estimator,
+        AND = AND,
+        progressbar = verbose,
+        gamma = gamma
+      ))
+    } else { # glasso
       # 若未提供 rho，则给一个保守默认值，并提示
       if (is.null(estimatorArgs) || is.null(estimatorArgs$rho)) {
         if (verbose) message("estimator='glasso' 未提供 rho，已使用默认 rho = 0.1。可通过 estimatorArgs=list(rho=...) 指定。")
         estimatorArgs <- modifyList(list(rho = 0.1), estimatorArgs %||% list())
       }
+      nct_call <- bquote(NCT(
+        data1 = X1, data2 = X2,
+        it = it,
+        paired = paired,
+        test.edges = test_edges,
+        edges = "all",
+        test.centrality = test_centrality,
+        centrality = centrality,
+        estimator = estimator,
+        AND = AND,
+        progressbar = verbose,
+        estimatorArgs = .(estimatorArgs)
+      ))
     }
-    
-    # 合并 estimatorArgs
-    if (!is.null(estimatorArgs)) {
-      nct_args$estimatorArgs <- estimatorArgs
-    }
-    
-    # 1) 运行 NCT
+
+    # 1) 运行 NCT（加错误捕获，防止如非方阵协方差导致失败）
     set.seed(123)
-    nct <- do.call(NCT, nct_args)
+    nct <- tryCatch(eval(nct_call),
+                    error = function(e) {
+                      warning(glue("NCT failed for {lab_a} vs {lab_b}: {e$message}"))
+                      NULL
+                    })
     nct_objects[[glue("{lab_a}_vs_{lab_b}")]] <- nct
-    
+
     # 2) 全局结果
     global_rows[[r]] <- tibble(
       Pair               = glue("{lab_a} - {lab_b}"),
-      p_global_strength  = nct$glstrinv.pval %||% NA_real_,
-      p_structure        = nct$nst.pval      %||% NA_real_
+      p_global_strength  = if (!is.null(nct)) nct$glstrinv.pval else NA_real_,
+      p_structure        = if (!is.null(nct)) nct$nst.pval      else NA_real_
     )
     
     # 3) 为了给出具体“边权差值”，我们再估计一次两组网络权重矩阵：
     #    - 若选择 EBICglasso：用 qgraph::EBICglasso（无需 rho）
     #    - 若选择 glasso：    用 glasso()（需要 rho；已在上面保证存在）
     if (estimator == "EBICglasso") {
-      S1 <- cor(X1, use = "pairwise.complete.obs")
-      S2 <- cor(X2, use = "pairwise.complete.obs")
+      S1 <- stats::cov(X1, use = "pairwise.complete.obs")
+      S2 <- stats::cov(X2, use = "pairwise.complete.obs")
+      S1 <- stats::cov2cor(matrix(S1, nrow = p, ncol = p))
+      S2 <- stats::cov2cor(matrix(S2, nrow = p, ncol = p))
       W1 <- tryCatch(qgraph::EBICglasso(S1, n = nrow(X1), gamma = gamma),
                      error = function(e) matrix(NA_real_, p, p))
       W2 <- tryCatch(qgraph::EBICglasso(S2, n = nrow(X2), gamma = gamma),
@@ -1500,12 +1524,13 @@ multi_NCT_compare <- function(
       if (!requireNamespace("glasso", quietly = TRUE)) {
         stop("需要安装并加载 'glasso' 包：install.packages('glasso'); library(glasso)")
       }
-      S1 <- cov(X1, use = "pairwise.complete.obs")
-      S2 <- cov(X2, use = "pairwise.complete.obs")
+      S1 <- stats::cov(X1, use = "pairwise.complete.obs")
+      S2 <- stats::cov(X2, use = "pairwise.complete.obs")
+      S1 <- matrix(S1, nrow = p, ncol = p)
+      S2 <- matrix(S2, nrow = p, ncol = p)
       rho <- estimatorArgs$rho
       W1 <- tryCatch({
         out1 <- glasso::glasso(s = S1, rho = rho)
-        # 从精度矩阵转到偏相关（可用 qgraph::wi2net 或手动转换；这里取 -P_ij/sqrt(P_ii P_jj)）
         P1 <- out1$wi
         R1 <- -P1 / sqrt(outer(diag(P1), diag(P1)))
         diag(R1) <- 0

@@ -338,6 +338,7 @@ vars_for_NCT <- vars[which(type_vec == "g")]
 nct_out <- multi_NCT_compare(
   data_subsets      = data_subsets_3,
   var_names         = vars_for_NCT,          # 只含连续变量名
+  condition_labels  = condition_levels_3,    # 为输出指定条件标签
   estimator         = "EBICglasso",          # ← 推荐
   gamma             = 0.5,
   it                = 1000,
