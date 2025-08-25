@@ -1403,24 +1403,47 @@ multi_NCT_compare <- function(
   G <- length(data_subsets)
   if (is.null(condition_labels)) condition_labels <- paste0("Cond", seq_len(G))
   stopifnot(length(condition_labels) == G)
-  
+
   if (is.null(var_names)) {
     var_names <- colnames(as.data.frame(data_subsets[[1]]))
   }
-  
-  # 逐条件预处理：列对齐、仅取连续列、标准化
+
+  if (!is.null(cont_cols)) {
+    var_names <- intersect(var_names, cont_cols)
+  }
+
+  # 在所有条件数据集中筛除方差为0或有效观测数不足的变量
+  valid_cols_list <- lapply(data_subsets, function(D) {
+    D <- as.data.frame(D)
+    cols <- intersect(colnames(D), var_names)
+    cols[sapply(cols, function(cl) {
+      vec <- D[[cl]]
+      sum(!is.na(vec)) > 1 && stats::sd(vec, na.rm = TRUE) > 0
+    })]
+  })
+  common_cols <- Reduce(intersect, valid_cols_list)
+  removed_cols <- setdiff(var_names, common_cols)
+  if (length(removed_cols) > 0 && verbose) {
+    message("Dropping variables with zero variance or insufficient data: ",
+            paste(removed_cols, collapse = ", "))
+  }
+  var_names <- common_cols
+  if (length(var_names) < 2) {
+    stop("Not enough variables left for NCT after filtering")
+  }
+
+  # 逐条件预处理：列对齐、标准化
   prep_one <- function(D) {
     D <- as.data.frame(D)
     D <- D[, var_names, drop = FALSE]
-    if (!is.null(cont_cols)) D <- D[, cont_cols, drop = FALSE]
     if (scale_data) {
       D <- scale(D)
     }
     return(as.matrix(D))
   }
   data_subsets_prep <- lapply(data_subsets, prep_one)
-  
-  var_names_sub <- colnames(as.data.frame(data_subsets_prep[[1]]))
+
+  var_names_sub <- var_names
   p <- length(var_names_sub)
   
   # —— 辅助：上三角 -> 边表
