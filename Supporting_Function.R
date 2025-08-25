@@ -1004,12 +1004,23 @@ run_mgm_per_condition <- function(
   
   # 如果没有传入 type_vec 和 level_vec，则自动推断
   if (is.null(type_vec)) {
-    type_vec <- ifelse(sapply(data_mat, is.factor), "c", "g")
+    # 对矩阵/数据框逐列检查：若为因子或所有非NA值均为整数，判定为分类变量
+    type_vec <- sapply(seq_len(ncol(data_mat)), function(i) {
+      col_i <- data_mat[, i]
+      col_i <- col_i[!is.na(col_i)]
+      is_categorical <- is.factor(col_i) || all(col_i == round(col_i))
+      if (is_categorical) "c" else "g"
+    })
     cat("type_vec 已自动推断。\n")
   }
-  
+
   if (is.null(level_vec)) {
-    level_vec <- sapply(data_mat, function(x) length(unique(x)))
+    level_vec <- sapply(seq_len(ncol(data_mat)), function(i) {
+      col_i <- data_mat[, i]
+      col_i <- col_i[!is.na(col_i)]
+      is_categorical <- is.factor(col_i) || all(col_i == round(col_i))
+      if (is_categorical) length(unique(col_i)) else 1
+    })
     cat("level_vec 已自动推断。\n")
   }
   
