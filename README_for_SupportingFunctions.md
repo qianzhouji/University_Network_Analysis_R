@@ -56,4 +56,4 @@ The repository includes `Supporting_Function.R` with custom functions for networ
 
 ### `multi_NCT_compare`
 - **EN**: Perform pairwise Network Comparison Tests across multiple conditions and summarize global and edge-wise differences.
-- **中文**：对多个条件执行两两网络比较检验，汇总全局和单边差异并可输出 Top K 摘要。
+- **中文**：对多个条件执行两两网络比较检验，汇总全局和单边差异并可输出 Top K 摘要。函数会自动剔除在任一条件下方差为 0 或有效观测不足的变量，以避免比较时的数值问题。
