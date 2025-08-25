@@ -5,6 +5,7 @@ library(ggplot2)
 library(readr)
 library(showtext)
 library(dplyr)
+library(glue)
 
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 #函数：对Bootstrap结果边权绝对值最高的TopN进行置信区间可视化————————————————————————————————————————————————————————————————————————————————————
@@ -1414,10 +1415,8 @@ multi_NCT_compare <- function(
     if (!is.null(cont_cols)) D <- D[, cont_cols, drop = FALSE]
     if (scale_data) {
       D <- scale(D)
-    } else {
-      D <- as.matrix(D)
     }
-    return(D)
+    return(as.matrix(D))
   }
   data_subsets_prep <- lapply(data_subsets, prep_one)
   
@@ -1493,24 +1492,28 @@ multi_NCT_compare <- function(
       ))
     }
 
+
     # 1) 运行 NCT
     set.seed(123)
     nct <- eval(nct_call)
+
     nct_objects[[glue("{lab_a}_vs_{lab_b}")]] <- nct
-    
+
     # 2) 全局结果
     global_rows[[r]] <- tibble(
       Pair               = glue("{lab_a} - {lab_b}"),
-      p_global_strength  = nct$glstrinv.pval %||% NA_real_,
-      p_structure        = nct$nst.pval      %||% NA_real_
+      p_global_strength  = if (!is.null(nct)) nct$glstrinv.pval else NA_real_,
+      p_structure        = if (!is.null(nct)) nct$nst.pval      else NA_real_
     )
     
     # 3) 为了给出具体“边权差值”，我们再估计一次两组网络权重矩阵：
     #    - 若选择 EBICglasso：用 qgraph::EBICglasso（无需 rho）
     #    - 若选择 glasso：    用 glasso()（需要 rho；已在上面保证存在）
     if (estimator == "EBICglasso") {
-      S1 <- cor(X1, use = "pairwise.complete.obs")
-      S2 <- cor(X2, use = "pairwise.complete.obs")
+      S1 <- stats::cov(X1, use = "pairwise.complete.obs")
+      S2 <- stats::cov(X2, use = "pairwise.complete.obs")
+      S1 <- stats::cov2cor(matrix(S1, nrow = p, ncol = p))
+      S2 <- stats::cov2cor(matrix(S2, nrow = p, ncol = p))
       W1 <- tryCatch(qgraph::EBICglasso(S1, n = nrow(X1), gamma = gamma),
                      error = function(e) matrix(NA_real_, p, p))
       W2 <- tryCatch(qgraph::EBICglasso(S2, n = nrow(X2), gamma = gamma),
@@ -1519,12 +1522,13 @@ multi_NCT_compare <- function(
       if (!requireNamespace("glasso", quietly = TRUE)) {
         stop("需要安装并加载 'glasso' 包：install.packages('glasso'); library(glasso)")
       }
-      S1 <- cov(X1, use = "pairwise.complete.obs")
-      S2 <- cov(X2, use = "pairwise.complete.obs")
+      S1 <- stats::cov(X1, use = "pairwise.complete.obs")
+      S2 <- stats::cov(X2, use = "pairwise.complete.obs")
+      S1 <- matrix(S1, nrow = p, ncol = p)
+      S2 <- matrix(S2, nrow = p, ncol = p)
       rho <- estimatorArgs$rho
       W1 <- tryCatch({
         out1 <- glasso::glasso(s = S1, rho = rho)
-        # 从精度矩阵转到偏相关（可用 qgraph::wi2net 或手动转换；这里取 -P_ij/sqrt(P_ii P_jj)）
         P1 <- out1$wi
         R1 <- -P1 / sqrt(outer(diag(P1), diag(P1)))
         diag(R1) <- 0
