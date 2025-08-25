@@ -1004,12 +1004,23 @@ run_mgm_per_condition <- function(
   
   # 如果没有传入 type_vec 和 level_vec，则自动推断
   if (is.null(type_vec)) {
-    type_vec <- ifelse(sapply(data_mat, is.factor), "c", "g")
+    # 对矩阵/数据框逐列检查：若为因子或所有非NA值均为整数，判定为分类变量
+    type_vec <- sapply(seq_len(ncol(data_mat)), function(i) {
+      col_i <- data_mat[, i]
+      col_i <- col_i[!is.na(col_i)]
+      is_categorical <- is.factor(col_i) || all(col_i == round(col_i))
+      if (is_categorical) "c" else "g"
+    })
     cat("type_vec 已自动推断。\n")
   }
-  
+
   if (is.null(level_vec)) {
-    level_vec <- sapply(data_mat, function(x) length(unique(x)))
+    level_vec <- sapply(seq_len(ncol(data_mat)), function(i) {
+      col_i <- data_mat[, i]
+      col_i <- col_i[!is.na(col_i)]
+      is_categorical <- is.factor(col_i) || all(col_i == round(col_i))
+      if (is_categorical) length(unique(col_i)) else 1
+    })
     cat("level_vec 已自动推断。\n")
   }
   
@@ -1446,37 +1457,45 @@ multi_NCT_compare <- function(
     
     # ---- 估计器设置（关键改造）----
     # NCT 支持 estimator = "EBICglasso" 或 "glasso"
-    nct_args <- list(
-      data1 = X1, data2 = X2,
-      it = it,
-      paired = paired,
-      test.edges = test_edges,
-      edges = "all",
-      test.centrality = test_centrality,
-      centrality = centrality,
-      estimator = estimator,
-      AND = AND,
-      progressbar = verbose
-    )
-    
+    # ---- 直接调用 NCT 避免 do.call 引发的 match.call 清洗错误 ----
     if (estimator == "EBICglasso") {
-      nct_args$gamma <- gamma  # 仅 EBICglasso 用
-    } else if (estimator == "glasso") {
+      nct_call <- quote(NCT(
+        data1 = X1, data2 = X2,
+        it = it,
+        paired = paired,
+        test.edges = test_edges,
+        edges = "all",
+        test.centrality = test_centrality,
+        centrality = centrality,
+        estimator = estimator,
+        AND = AND,
+        progressbar = verbose,
+        gamma = gamma
+      ))
+    } else { # glasso
       # 若未提供 rho，则给一个保守默认值，并提示
       if (is.null(estimatorArgs) || is.null(estimatorArgs$rho)) {
         if (verbose) message("estimator='glasso' 未提供 rho，已使用默认 rho = 0.1。可通过 estimatorArgs=list(rho=...) 指定。")
         estimatorArgs <- modifyList(list(rho = 0.1), estimatorArgs %||% list())
       }
+      nct_call <- bquote(NCT(
+        data1 = X1, data2 = X2,
+        it = it,
+        paired = paired,
+        test.edges = test_edges,
+        edges = "all",
+        test.centrality = test_centrality,
+        centrality = centrality,
+        estimator = estimator,
+        AND = AND,
+        progressbar = verbose,
+        estimatorArgs = .(estimatorArgs)
+      ))
     }
-    
-    # 合并 estimatorArgs
-    if (!is.null(estimatorArgs)) {
-      nct_args$estimatorArgs <- estimatorArgs
-    }
-    
+
     # 1) 运行 NCT
     set.seed(123)
-    nct <- do.call(NCT, nct_args)
+    nct <- eval(nct_call)
     nct_objects[[glue("{lab_a}_vs_{lab_b}")]] <- nct
     
     # 2) 全局结果
