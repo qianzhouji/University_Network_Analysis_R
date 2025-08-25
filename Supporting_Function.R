@@ -1492,13 +1492,11 @@ multi_NCT_compare <- function(
       ))
     }
 
-    # 1) 运行 NCT（加错误捕获，防止如非方阵协方差导致失败）
+
+    # 1) 运行 NCT
     set.seed(123)
-    nct <- tryCatch(eval(nct_call),
-                    error = function(e) {
-                      warning(glue("NCT failed for {lab_a} vs {lab_b}: {e$message}"))
-                      NULL
-                    })
+    nct <- eval(nct_call)
+
     nct_objects[[glue("{lab_a}_vs_{lab_b}")]] <- nct
 
     # 2) 全局结果
