@@ -1,4 +1,9 @@
-library(NetworkComparisonTest)
+# Assume a list of data subsets called data_subsets
+n_sets <- length(data_subsets_3)
+
+# Select numeric variables (adjust according to your variable names)
+vars_for_NCT <- vars[which(type_vec == "g")]
+
 
 #' Run NCT across all pairs of data subsets
 #'
@@ -19,26 +24,26 @@ run_nct_pairs <- function(data_subsets,
                           test.centrality = FALSE,
                           paired = FALSE) {
   n_sets <- length(data_subsets)
-
+  
   # Standardize selected variables for each subset
   scaled_subsets <- lapply(data_subsets, function(dat) {
     scale(dat[, vars_for_NCT])
   })
-
+  
   # Generate all condition pairs
   pairs_idx <- combn(n_sets, 2)
-
+  
   # Storage lists
   nct_results <- list()
   global_strength_list <- list()
   network_structure_list <- list()
   edge_diff_list <- list()
-
+  
   for (i in seq_len(ncol(pairs_idx))) {
     i1 <- pairs_idx[1, i]
     i2 <- pairs_idx[2, i]
     pair_name <- paste0(i1, "_vs_", i2)
-
+    
     nct_res <- NCT(
       data1 = scaled_subsets[[i1]],
       data2 = scaled_subsets[[i2]],
@@ -48,9 +53,9 @@ run_nct_pairs <- function(data_subsets,
       test.centrality = test.centrality,
       paired = paired
     )
-
+    
     nct_results[[pair_name]] <- nct_res
-
+    
     # Global strength difference
     global_strength_list[[pair_name]] <- data.frame(
       condition_pair = pair_name,
@@ -60,7 +65,7 @@ run_nct_pairs <- function(data_subsets,
       p_value = nct_res$glstrinv.pval,
       row.names = NULL
     )
-
+    
     # Network structure difference
     network_structure_list[[pair_name]] <- data.frame(
       condition_pair = pair_name,
@@ -68,7 +73,7 @@ run_nct_pairs <- function(data_subsets,
       p_value = nct_res$nwinv.pval,
       row.names = NULL
     )
-
+    
     # Edge differences - keep significant edges only
     edge_df <- nct_res$einv.pvals
     colnames(edge_df) <- c("Var1", "Var2", "p_value", "E")
@@ -80,18 +85,18 @@ run_nct_pairs <- function(data_subsets,
     }
     edge_diff_list[[pair_name]] <- edge_df
   }
-
+  
   global_strength_table <- do.call(rbind, global_strength_list)
   network_structure_table <- do.call(rbind, network_structure_list)
-
+  
   list(
     global_strength = global_strength_table,
     network_structure = network_structure_table,
     edge_differences = edge_diff_list,
     nct_results = nct_results
   )
+  
 }
 
-# Example usage:
-# vars_for_NCT <- c("var1", "var2", "var3")
-# results <- run_nct_pairs(data_subsets, vars_for_NCT)
+NCT_Test_res <- results <- run_nct_pairs(data_subsets_3, vars_for_NCT)
+
