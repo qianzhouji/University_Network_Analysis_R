@@ -254,7 +254,7 @@ moderator_index <- 1
 boot_results_3 <- run_bootstrap_for_conditions(
   cond_list = cond_list_3,
   data_subsets = data_subsets_3,
-  nB = 200,
+  nB = 120,
   maxit = 300000,
   lambdaSel = "EBIC",
   lambdaGam = 0.25,
@@ -270,7 +270,7 @@ head(boot_results_3$significant_edges_df)
 vars_wo_mod <- vars[-moderator_index]
 
 ## 2) 不同 condition 的边权差异（bootstrap置信区间差）
-#自定义函数，直接对三个子数据集的mgm分别进行bootstrap，并且展示显著边
+#自定义函数，直接对三个子数据集边权的置信区间做差检验，并且展示显著边
 edge_diff_df_3 <- edge_difference_test(
   bootstrap_results_list = bootstrap_results_list_3,
   cond_list              = cond_list_3,       # 每个条件下的 mgm 对象
@@ -301,7 +301,7 @@ out_plot <- plot_conditions_topN(
 )
 
 
-#——————————————————————社群分析与网络分析————————————————————————————————————
+#————————————————————————————社群分析与网络分析————————————————————————————————————
 
 # 社群分析并绘图
 group_res <- community_detection_and_plot(
@@ -334,17 +334,15 @@ res2 <- compute_and_plot_BEI(
 
 # 提取出连续变量列（顺便把调节变量列也剃掉了）
 vars_for_NCT <- vars[which(type_vec == "g")]
-# 调用自定义NCT函数，两两条件进行NCT，并且保存输出内容
-nct_out <- multi_NCT_compare(
-  data_subsets      = data_subsets_3,
-  var_names         = vars_for_NCT,          # 只含连续变量名
-  condition_labels  = condition_levels_3,    # 为输出指定条件标签
-  estimator         = "EBICglasso",          # ← 推荐
-  gamma             = 0.5,
-  it                = 1000,
-  test_edges        = TRUE,
-  alpha             = 0.05,
-  p_adjust          = "holm",
-  top_k_edges       = 20,
-  verbose           = TRUE
-)
+
+NCTres <- run_nct_pairs(
+  data_subsets_3, 
+  vars_for_NCT,
+  it = 200,
+  test.centrality = TRUE,
+  progressbar = TRUE
+  )
+
+NCTres$global_strength
+NCTres$network_structure
+NCTres$edge_differences
