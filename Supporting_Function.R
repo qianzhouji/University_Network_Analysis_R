@@ -912,49 +912,57 @@ split_by_moderator <- function(data_mat, moderator_index = 1, var_names = NULL) 
 
 run_mgm_for_conditions <- function(
     data_subsets,
-    maxit = 300000,
-    lambdaSel = "EBIC",
-    lambdaGam = 0.8,
-    ruleReg = "OR",
-    scale = TRUE,
-    type_vec = NULL,
-    level_vec = NULL
+    maxit      = 300000,
+    lambdaSel  = "EBIC",
+    lambdaGam  = 0.8,
+    ruleReg    = "OR",
+    scale      = TRUE,
+    type_vec   = NULL,
+    level_vec  = NULL,
+    pbar       = FALSE
 ) {
-  n_levels <- length(data_subsets)
+  n_levels  <- length(data_subsets)
   cond_list <- vector("list", n_levels)
   
-  # 自动推断类型与水平信息（基于第一个子集）
-  if (is.null(type_vec) || is.null(level_vec)) {
-    df <- data_subsets[[1]]
-    type_vec <- sapply(seq_len(ncol(df)), function(i) {
-      col <- df[, i]; col <- col[!is.na(col)]
+  # 若未传入 type_vec，则从首个子数据集推断一次
+  if (is.null(type_vec)) {
+    df0 <- data_subsets[[1]]
+    type_vec <- sapply(seq_len(ncol(df0)), function(j) {
+      col <- df0[, j]; col <- col[!is.na(col)]
       if (is.factor(col) || all(col == round(col))) "c" else "g"
     })
-    level_vec <- sapply(seq_len(ncol(df)), function(i) {
-      col <- df[, i]; col <- col[!is.na(col)]
-      if (type_vec[i] == "c") length(unique(col)) else 1
-    })
-    cat("type_vec 和 level_vec 已自动推断。\n")
   }
   
   for (i in seq_len(n_levels)) {
-    cat(sprintf("\n正在为条件 %d 拟合 MGM 模型...\n", i))
+    df <- data_subsets[[i]]
+    
+    # level_vec 为空时，按当前子数据集计算
+    level_current <- if (is.null(level_vec)) {
+      sapply(seq_len(ncol(df)), function(j) {
+        col <- df[, j]; col <- col[!is.na(col)]
+        if (type_vec[j] == "c") length(unique(col)) else 1
+      })
+      cat(sprintf("\ntype_vec 和 level_vec 已根据条件 %d 自动推断。\n", i))
+    } else level_vec
+    
+    cat(sprintf("正在为条件 %d 拟合 MGM 模型...\n", i))
     cond_list[[i]] <- mgm(
-      data = data_subsets[[i]],
-      type = type_vec,
-      level = level_vec,
-      k = 2,
+      data  = df,
+      type  = type_vec,
+      level = level_current,
+      k     = 2,
       lambdaSel = lambdaSel,
       lambdaGam = lambdaGam,
-      ruleReg = ruleReg,
-      scale = scale,
+      ruleReg   = ruleReg,
+      scale     = scale,
       glmnet.control = list(maxit = maxit),
-      pbar = FALSE
+      pbar      = pbar
     )
   }
   
   cond_list
 }
+
 
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
@@ -1391,7 +1399,6 @@ plot_nct_pairs <- function(
 
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 #函数构建：对不同条件下节点BEI差异的显著性检验————————————————————————————————————————————————————————————————————————————————————————————————————
-#调试中...
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
 pairwise_BEI_ttest <- function(BEI_for_conditions,
@@ -1452,9 +1459,28 @@ pairwise_BEI_ttest <- function(BEI_for_conditions,
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
 
+#函数：删无限值
 
 
+clean_xlsx <- function(path, sheet = 1) {
+  # 读取指定工作表
+  df <- read_xlsx(path, sheet = sheet)
+  
+  # 选出数值型列，用于检查无限值
+  num_cols <- sapply(df, is.numeric)
+  
+  # 删除包含 NA 或 ±Inf 的行
+  df_clean <- df[
+    complete.cases(df) &              # 去掉含 NA 的行
+      apply(df[, num_cols, drop = FALSE], 1, function(r) all(is.finite(r))), # 去掉含 ±Inf 的行
+    , drop = FALSE
+  ]
+  
+  # 覆写原文件（仅保留清理后的数据；如需保留多表格，可先备份）
+  write_xlsx(df_clean, path)
+}
 
+#————
 
 #—————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 #已遗弃
