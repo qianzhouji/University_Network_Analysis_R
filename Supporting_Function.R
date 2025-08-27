@@ -5,8 +5,14 @@ library(ggplot2)
 library(readr)
 library(showtext)
 library(dplyr)
+library(igraph)
+library(patchwork)
+library(NetworkComparisonTest)
+library(purrr)
+library(tidyr)
 library(glue)
-
+library(glasso)
+library(tidyr)
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 #函数：对Bootstrap结果边权绝对值最高的TopN进行置信区间可视化————————————————————————————————————————————————————————————————————————————————————
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
@@ -160,9 +166,9 @@ plot_topN_bootstrap_edges <- function(
   
   # ---- 6) 可选保存 ----
   if (!is.null(save_prefix)) {
-    utils::write.csv(edge_df, paste0(save_prefix, "_bootstrap_edges_full.csv"), row.names = FALSE)
-    utils::write.csv(top_df,  paste0(save_prefix, "_bootstrap_edges_top.csv"),  row.names = FALSE)
-    ggplot2::ggsave(paste0(save_prefix, "_bootstrap_CI_plot.png"), plt, width = 9, height = 7, dpi = 300)
+    #utils::write.csv(edge_df, paste0(save_prefix, "_bootstrap_edges_full.csv"), row.names = FALSE)
+    #utils::write.csv(top_df,  paste0(save_prefix, "_bootstrap_edges_top.csv"),  row.names = FALSE)
+    ggplot2::ggsave(paste0(save_prefix, "_bootstrap_CI_plot.pdf"), plt, width = 9, height = 7, dpi = 300)
   }
   
   invisible(list(
@@ -221,15 +227,20 @@ community_detection_and_plot <- function(
   layout <- layout_with_fr(g)
   
   if (!is.null(save_path)) {
-    png(filename = save_path, width = 800, height = 600)
+    png(save_path)
     plot(comm, g,
          main = "基于Louvain社群的网络可视化",
-         vertex.label = var_names,
          vertex.size = 30,
          vertex.label.cex = 0.8
     )
     dev.off()
-    message(paste("网络图保存至:", save_path))
+    cat(paste("社群网络图保存至:", save_path))
+    
+    plot(comm, g,
+         main = "基于Louvain社群的网络可视化",
+         vertex.size = 30,
+         vertex.label.cex = 0.8
+    )
   } else {
     plot(comm, g,
          main = "基于Louvain社群的网络可视化",
@@ -339,7 +350,8 @@ compute_and_plot_BEI <- function(
     group_vector,              # 数值/因子向量：长度需等于 p（分条件网络的节点数）
     var_names,                 # 变量名（不含调节变量），长度 = p
     condition_labels = NULL,   # 条件标签，如 c("Level 1","Level 2",...)
-    plot_title = "Bridge Expected Influence (BEI) across Conditions"
+    plot_title = "Bridge Expected Influence (BEI) across Conditions",
+    save_name = "BEI.pdf"
 ) {
   # --- 基本检查 ---
   stopifnot(is.list(cond_list), length(cond_list) >= 1)
@@ -374,6 +386,11 @@ compute_and_plot_BEI <- function(
   
   # 合并 & 画图
   BEI_all <- do.call(rbind, BEI_results)
+  pdf(file.path("plot", save_name))
+  p_BEI   <- plot_BEI_results(BEI_all, plot_title = plot_title)
+  dev.off()
+  cat(paste0("BEI网络图已存储为", save_name))
+  
   p_BEI   <- plot_BEI_results(BEI_all, plot_title = plot_title)
   
   invisible(list(
@@ -417,7 +434,7 @@ plot_moderation_qgraph <- function(
     layout = "spring",
     vsize_vars = 6,
     vsize_mods = 6,
-    main_title = "带调节作用的网络图（固定颜色）"
+    main_title = "带调节作用的网络图"
 ) {
   stopifnot(is.matrix(mgm_fit$pairwise$wadj))
   p <- length(var_names)
@@ -495,6 +512,7 @@ plot_moderation_qgraph <- function(
     W[fk, j] <- w; W[j, fk] <- w
   }
   
+  
   # 3) 节点标签/形状/颜色
   node_labels <- c(var_names, rep(ifelse(is.null(triangle_label), var_names[moderator_index], triangle_label), m))
   shapes      <- c(rep("circle", p), rep("triangle", m))
@@ -531,13 +549,15 @@ plot_moderation_qgraph <- function(
     edge.color  = Cmat,
     edge.labels = Elabels,
     edge.labels.cex = edge_labels_cex,
-    edge.labels = FALSE,   # 关闭边权数值显示
-    minimum     = 0,
-    cut         = 0,
+    edge.labels = TRUE,   
     label.cex   = 1.0,
     vsize       = vsize_vec,
     title       = main_title
   )
+  
+  pdf(file.path("plot", "network_with_mod.pdf"))
+  qgraph(W,layout  = layout,labels = node_labels,shape = shapes,color = node_colors,edge.color = Cmat,edge.labels = Elabels,edge.labels.cex = edge_labels_cex,edge.labels = TRUE,label.cex = 1.0,vsize = vsize_vec,title = main_title)
+  dev.off()
   
   invisible(list(
     W            = W,
@@ -634,131 +654,6 @@ make_moderation_df <- function(mgm_fit,
   df <- df[order(-abs(df$Weight)), ]
   rownames(df) <- NULL
   df
-}
-
-#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-
-#—————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-#函数构建：文本输出三阶交互大小（调节作用）及各condition下对应边权——————————————————————————————————————————————————————————————————————————————————————————————————————————
-#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-
-summarize_moderation_text <- function(
-    mgm_fit,
-    data_mat,
-    moderation_df,         # data.frame: Var1, Var2, Weight, (可选) Sign
-    var_names,             # 含所有变量中文名/标签
-    moderator_index = 1,   # 调节变量列号（默认第1列）
-    moderator_name  = NULL,# 若不传，则用 var_names[moderator_index]
-    condition_values = NULL,       # 如 c(1,2,3)；缺省则从 data_mat[, moderator_index] 唯一值取
-    condition_labels = NULL,       # 如 c("Level 1","Level 2","Level 3")
-    cond_list = NULL,              # 可选：已预先计算好的 condition() 列表；传了就不再计算
-    digits = 3,                    # 小数位
-    top_k = NULL                   # 可选：只汇报 |Weight| 前K条调节作用
-) {
-  stopifnot(is.matrix(data_mat) || is.data.frame(data_mat))
-  if (is.null(moderator_name)) moderator_name <- var_names[moderator_index]
-  
-  # —— 0) 整理 moderation_df（允许 Var1/Var2 是名或索引） ——
-  idx_of <- function(v) if (is.numeric(v)) as.integer(v) else match(v, var_names)
-  if (!all(c("Var1","Var2","Weight") %in% names(moderation_df))) {
-    stop("moderation_df 需包含列: Var1, Var2, Weight，（可选）Sign")
-  }
-  moderation_df$Var1_idx <- idx_of(moderation_df$Var1)
-  moderation_df$Var2_idx <- idx_of(moderation_df$Var2)
-  if (anyNA(moderation_df$Var1_idx) || anyNA(moderation_df$Var2_idx)) {
-    stop("moderation_df$Var1 / Var2 无法在 var_names 中匹配。")
-  }
-  # 可选：只保留|Weight|前K条
-  if (!is.null(top_k)) {
-    ord <- order(abs(moderation_df$Weight), decreasing = TRUE)
-    moderation_df <- moderation_df[ord, , drop = FALSE]
-    moderation_df <- head(moderation_df, top_k)
-  }
-  
-  # —— 1) 准备条件水平与标签 ——
-  if (is.null(condition_values)) {
-    condition_values <- sort(unique(as.integer(data_mat[, moderator_index])))
-  }
-  if (is.null(condition_labels)) {
-    condition_labels <- paste0("Level ", condition_values)
-  }
-  if (length(condition_labels) != length(condition_values)) {
-    stop("condition_labels 与 condition_values 长度不一致。")
-  }
-  
-  # —— 2) condition()：如未提供 cond_list，则现算 ——
-  if (is.null(cond_list)) {
-    cond_list <- vector("list", length(condition_values))
-    for (i in seq_along(condition_values)) {
-      val <- condition_values[i]
-      cond_list[[i]] <- mgm::condition(
-        object = mgm_fit,
-        values = setNames(list(val), as.character(moderator_index))
-      )
-    }
-  }
-  
-  # —— 3) 提取每个条件下 A–B 的带符号边权，并逐条打印 ——
-  cat("\n================ 调节作用文字描述 ================\n")
-  res_rows <- list()
-  
-  for (r in seq_len(nrow(moderation_df))) {
-    i <- moderation_df$Var1_idx[r]
-    j <- moderation_df$Var2_idx[r]
-    A <- var_names[i]
-    B <- var_names[j]
-    mod_w <- moderation_df$Weight[r]
-    
-    # 每个条件的带符号边权
-    cond_weights <- numeric(length(cond_list))
-    for (cidx in seq_along(cond_list)) {
-      wadj  <- cond_list[[cidx]]$pairwise$wadj
-      signs <- cond_list[[cidx]]$pairwise$signs
-      w_ij  <- wadj[i, j]
-      s_ij  <- signs[i, j]
-      # 如果 sign 缺失或为0，按无符号处理；你也可以改成 NA
-      signed_w <- ifelse(is.na(s_ij) || s_ij == 0, NA_real_, w_ij * s_ij)
-      # 若 signs 缺失但 w 非零，你也可以直接用 w_ij（按需替换）
-      if (is.na(signed_w) && !is.na(w_ij) && w_ij != 0) signed_w <- w_ij
-      cond_weights[cidx] <- signed_w
-    }
-    
-    # —— 4) 文字框输出 ——
-    cat(sprintf("\n【%s】调节了：%s 与 %s 的关系；调节效应 = %.*f\n",
-                moderator_name, A, B, digits, mod_w))
-    for (cidx in seq_along(condition_values)) {
-      val_lab <- condition_labels[cidx]
-      wlab    <- ifelse(is.na(cond_weights[cidx]), "NA", sprintf("%.*f", digits, cond_weights[cidx]))
-      cat(sprintf(" - 在 %s 中：%s 与 %s 的边权 = %s\n", val_lab, A, B, wlab))
-    }
-    
-    # 存到结果表
-    row_list <- list(
-      Moderator      = moderator_name,
-      Var1           = A,
-      Var2           = B,
-      ModEffect      = round(mod_w, digits)
-    )
-    # 展开每个条件的边权
-    for (cidx in seq_along(condition_labels)) {
-      nm <- paste0("Edge_", condition_labels[cidx])
-      row_list[[nm]] <- ifelse(is.na(cond_weights[cidx]),
-                               NA_real_, round(cond_weights[cidx], digits))
-    }
-    res_rows[[r]] <- row_list
-  }
-  
-  # —— 5) 返回整洁结果表 ——
-  res_df <- do.call(rbind, lapply(res_rows, as.data.frame))
-  rownames(res_df) <- NULL
-  
-  cat("=================================================\n\n")
-  return(invisible(list(
-    table = res_df,
-    condition_values = condition_values,
-    condition_labels = condition_labels
-  )))
 }
 
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
@@ -978,98 +873,92 @@ t_test_edge_diff <- function(
 
 
 #—————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-#子函数1：提取条件分别进行mgm——————————————————————————————————————————————————————————————————————————————————————————————————————————
+#子函数1.0：按调节变量分条件提取——————————————————————————————————————————————————————————————————————————————————————————————————————————
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+# data_mat       : 原始数据集 (matrix/data.frame)
+# moderator_index: 调节变量所在列号
+# var_names      : （可选）变量名向量；若缺省则自动取 colnames(data_mat)
 
-run_mgm_per_condition <- function(
-    data_mat,               # 数据集 (matrix格式)
-    var_names = NULL,       # 变量名列表
-    moderator_index = 1,    # 调节变量列号（默认第一列）
-    maxit = 300000,         # glmnet最大迭代次数
-    lambdaSel = "EBIC",     # 正则化方法
-    lambdaGam = 0.8,        # 正则化参数
-    ruleReg = "OR",         # 正则化规则
-    scale = TRUE,           # 是否标准化
-    type_vec = NULL,        # 用户传入的type向量（如果没有则自动推断）
-    level_vec = NULL        # 用户传入的level向量（如果没有则自动推断）
-) {
-  # 数据检查和准备
+split_by_moderator <- function(data_mat, moderator_index = 1, var_names = NULL) {
   stopifnot(is.matrix(data_mat) || is.data.frame(data_mat))
-  if (is.null(var_names)) {
-    var_names <- colnames(data_mat)  # 如果没有提供变量名列表，则自动从数据集获取
-  }
+  if (is.null(var_names)) var_names <- colnames(data_mat)
   
-  # 获取调节变量的水平数
-  moderator_values <- unique(data_mat[, moderator_index])
+  moderator_values <- sort(unique(data_mat[, moderator_index]))
   n_levels <- length(moderator_values)
   
-  # 如果没有传入 type_vec 和 level_vec，则自动推断
-  if (is.null(type_vec)) {
-    # 对矩阵/数据框逐列检查：若为因子或所有非NA值均为整数，判定为分类变量
-    type_vec <- sapply(seq_len(ncol(data_mat)), function(i) {
-      col_i <- data_mat[, i]
-      col_i <- col_i[!is.na(col_i)]
-      is_categorical <- is.factor(col_i) || all(col_i == round(col_i))
-      if (is_categorical) "c" else "g"
-    })
-    cat("type_vec 已自动推断。\n")
-  }
-
-  if (is.null(level_vec)) {
-    level_vec <- sapply(seq_len(ncol(data_mat)), function(i) {
-      col_i <- data_mat[, i]
-      col_i <- col_i[!is.na(col_i)]
-      is_categorical <- is.factor(col_i) || all(col_i == round(col_i))
-      if (is_categorical) length(unique(col_i)) else 1
-    })
-    cat("level_vec 已自动推断。\n")
+  data_subsets <- vector("list", n_levels)
+  
+  for (i in seq_len(n_levels)) {
+    sub <- data_mat[data_mat[, moderator_index] == moderator_values[i],
+                    -moderator_index, drop = FALSE]
+    colnames(sub) <- var_names[-moderator_index]
+    data_subsets[[i]] <- sub
   }
   
-  # 按照调节变量的水平划分数据集，并为每个子数据集拟合MGM模型
-  cond_list <- vector("list", n_levels)
-  data_subsets <- vector("list", n_levels)  # 用于存储每个条件下的子数据集
-  
-  for (i in 1:n_levels) {
-    # 提取对应调节变量水平的数据子集
-    subset_data <- data_mat[data_mat[, moderator_index] == moderator_values[i], ]
-    
-    # 删除调节变量列
-    subset_data <- subset_data[, -moderator_index]
-    
-    # 更新 type_vec 和 level_vec，去掉调节变量的类型和水平
-    subset_type_vec <- type_vec[-moderator_index]
-    subset_level_vec <- level_vec[-moderator_index]
-    
-    # 拟合MGM模型
-    cat(sprintf("\n正在为条件 %d (调节变量值 = %d) 拟合MGM模型...\n", i, moderator_values[i]))
-    mgm_fit <- mgm(
-      data = subset_data,
-      type = subset_type_vec,
-      level = subset_level_vec,
-      k = 2,                            # 默认使用pairwise模型
-      lambdaSel = lambdaSel,
-      lambdaGam = lambdaGam,
-      ruleReg = ruleReg,
-      scale = scale,
-      glmnet.control = list(maxit = maxit)
-    )
-    
-    # 将每个子数据集的mgm模型存储到cond_list
-    cond_list[[i]] <- mgm_fit
-    
-    # 将每个子数据集存储
-    data_subsets[[i]] <- subset_data
-  }
-  
-  # 返回条件列表和每个子数据集
-  return(list(
-    cond_list = cond_list,      # 每个条件下的mgm模型
-    data_subsets = data_subsets # 每个条件下的子数据集
-  ))
+  list(
+    data_subsets = data_subsets,          # 各条件下的子数据集
+    moderator_values = moderator_values   # 调节变量的所有水平
+  )
 }
 
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+#—————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#子函数1.1：分条件进行mgm——————————————————————————————————————————————————————————————————————————————————————————————————————————
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+# data_subsets : 由拆分函数得到的子数据集列表
+# 其余参数与原先一致；若未提供 type_vec/level_vec，则自动推断
+
+run_mgm_for_conditions <- function(
+    data_subsets,
+    maxit = 300000,
+    lambdaSel = "EBIC",
+    lambdaGam = 0.8,
+    ruleReg = "OR",
+    scale = TRUE,
+    type_vec = NULL,
+    level_vec = NULL
+) {
+  n_levels <- length(data_subsets)
+  cond_list <- vector("list", n_levels)
+  
+  # 自动推断类型与水平信息（基于第一个子集）
+  if (is.null(type_vec) || is.null(level_vec)) {
+    df <- data_subsets[[1]]
+    type_vec <- sapply(seq_len(ncol(df)), function(i) {
+      col <- df[, i]; col <- col[!is.na(col)]
+      if (is.factor(col) || all(col == round(col))) "c" else "g"
+    })
+    level_vec <- sapply(seq_len(ncol(df)), function(i) {
+      col <- df[, i]; col <- col[!is.na(col)]
+      if (type_vec[i] == "c") length(unique(col)) else 1
+    })
+    cat("type_vec 和 level_vec 已自动推断。\n")
+  }
+  
+  for (i in seq_len(n_levels)) {
+    cat(sprintf("\n正在为条件 %d 拟合 MGM 模型...\n", i))
+    cond_list[[i]] <- mgm(
+      data = data_subsets[[i]],
+      type = type_vec,
+      level = level_vec,
+      k = 2,
+      lambdaSel = lambdaSel,
+      lambdaGam = lambdaGam,
+      ruleReg = ruleReg,
+      scale = scale,
+      glmnet.control = list(maxit = maxit),
+      pbar = FALSE
+    )
+  }
+  
+  cond_list
+}
+
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
 
 
 #—————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
@@ -1084,7 +973,8 @@ run_bootstrap_for_conditions <- function(
     lambdaSel = "EBIC",      # 正则化方法
     lambdaGam = 0.8,         # 正则化参数
     ruleReg = "OR",          # 正则化规则
-    top_k = NULL             # 可选：仅返回前top_k显著边
+    top_k = NULL,            # 可选：仅返回前top_k显著边
+    pbar = FALSE
 ) {
   # 检查输入的条件列表长度与数据集一致
   stopifnot(length(cond_list) == length(data_subsets))
@@ -1125,7 +1015,8 @@ run_bootstrap_for_conditions <- function(
       object = mgm_fit,
       data = subset_data,  # 使用子数据集
       nB = nB,
-      glmnet.control = list(maxit = maxit)
+      glmnet.control = list(maxit = maxit),
+      pbar = pbar
     )
     
     # 存储bootstrap结果
@@ -1169,72 +1060,6 @@ run_bootstrap_for_conditions <- function(
     bootstrap_results_list = bootstrap_results_list,  # 每个条件下的bootstrap检验结果
     significant_edges_df = significant_edges_df,  # 显著边打印信息数据框
     sig_list = sig_list  # 显著边矩阵 
-  ))
-}
-
-#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-
-
-#—————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-#总函数构建：调用子函数1+2，统一完成mgm+bootstrap————————————————————————————————————————————————————————————————————————————————————————————
-#跑起来好像容易出bug，遂不用
-#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-
-# 总函数：执行分组提取子数据集，运行MGM模型，进行Bootstrap，输出显著边
-run_mgm_and_bootstrap <- function(
-    data_mat,               # 数据集 (matrix格式)
-    var_names = NULL,       # 变量名列表
-    moderator_index = 1,    # 调节变量列号（默认第一列）
-    nB = 100,               # bootstrap次数
-    maxit = 300000,         # glmnet最大迭代次数
-    lambdaSel = "EBIC",     # 正则化方法
-    lambdaGam = 0.8,        # 正则化参数
-    ruleReg = "OR",         # 正则化规则
-    scale = TRUE,           # 是否标准化
-    type_vec = NULL,        # 用户传入的type向量（如果没有则自动推断）
-    level_vec = NULL,       # 用户传入的level向量（如果没有则自动推断）
-    top_k = NULL            # 可选：仅返回前top_k显著边
-) {
-  
-  # 调用子函数1：根据调节变量分组并进行MGM建模
-  mgm_results <- run_mgm_per_condition(
-    data_mat = data_mat,
-    var_names = var_names,
-    moderator_index = moderator_index,
-    maxit = maxit,
-    lambdaSel = lambdaSel,
-    lambdaGam = lambdaGam,
-    ruleReg = ruleReg,
-    scale = scale,
-    type_vec = type_vec,
-    level_vec = level_vec
-  )
-  
-  cond_list <- mgm_results$cond_list        # 获取每个条件的mgm模型
-  data_subsets <- mgm_results$data_subsets  # 获取每个条件的子数据集
-  
-  # 调用子函数2：对每个条件的网络进行Bootstrap检验，并存储显著边
-  bootstrap_results <- run_bootstrap_for_conditions(
-    cond_list = cond_list,
-    data_subsets = data_subsets,
-    nB = nB,
-    maxit = maxit,
-    lambdaSel = lambdaSel,
-    lambdaGam = lambdaGam,
-    ruleReg = ruleReg,
-    top_k = top_k
-  )
-  
-  bootstrap_results_list <- bootstrap_results$bootstrap_results_list  # 获取每个条件的Bootstrap检验结果
-  significant_edges_df <- bootstrap_results$significant_edges_df      # 获取显著边数据框
-  
-  # 返回完整的结果
-  return(list(
-    data_subsets = data_subsets,
-    cond_list = cond_list,                        # 每个条件下的mgm模型
-    bootstrap_results_list = bootstrap_results_list, # 每个条件下的bootstrap检验结果
-    significant_edges_df = significant_edges_df   # 显著边数据框
   ))
 }
 
@@ -1370,261 +1195,390 @@ plot_conditions_topN <- function(
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 # 函数构建：一键两两NCT————————————————————————————————————————————————————————
 # 输出结果：整体网络结构差异、总体连通性差异、单边显著性检验
+#' Run NCT across all pairs of data subsets
+#'
+#' @param data_subsets List of data frames for each condition
+#' @param vars_for_NCT Character vector of variable names to include in the networks
+#' @param gamma EBIC hyperparameter passed to `NCT`
+#' @param it Number of permutations for `NCT`
+#' @param alpha Significance level for edge differences
+#' @param test.centrality Logical; whether to test centrality differences
+#' @param paired Logical; whether data sets are paired
+#' @return A list containing tables for global strength, network structure,
+#'         and significant edge differences, along with full NCT results
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-multi_NCT_compare <- function(
-    data_subsets,                 # list: 每个条件的 data.frame/matrix (rows=samples, cols=vars)
-    var_names            = NULL,  # 仅用于 NCT 的变量名（通常只含连续变量）
-    condition_labels     = NULL,  # 条件标签；若 NULL 则 "Cond1","Cond2",...
-    cont_cols            = NULL,  # 可选：仅保留这些连续变量列
-    scale_data           = TRUE,  # 是否标准化
-    
-    # —— NCT 估计部分（关键改造）——
-    estimator            = c("EBICglasso", "glasso"),
-    estimatorArgs        = NULL,  # 传给 NCT 的 estimatorArgs；如 list(rho=0.1)（仅 glasso 用）
-    gamma                = 0.5,   # EBIC gamma（仅 EBICglasso 用）
-    AND                  = TRUE,  # AND 规则
-    paired               = FALSE, # 两组是否配对
-    it                   = 1000,  # NCT 置换次数
-    
-    # —— 检验与输出 —— 
-    test_edges           = TRUE,          # 是否检验单边差异
-    test_centrality      = FALSE,         # 是否检验中心性
-    centrality           = c("strength"),
-    alpha                = 0.05,          # 显著性阈值（用于 sig 与 p 调整）
-    p_adjust             = "holm",        # 每个“条件对”的边差异 p 值校正方法
-    top_k_edges          = 20,            # 每个“条件对”Top‑K 单边差异摘要；设 NULL 关闭
-    verbose              = TRUE           # 是否显示进度
+run_nct_pairs <- function(data_subsets,
+                          vars_for_NCT,
+                          gamma = 0.5,
+                          it = 100,
+                          alpha = 0.05,
+                          test.centrality = FALSE,
+                          paired = FALSE,
+                          progressbar = FALSE
 ) {
-  stopifnot(is.list(data_subsets), length(data_subsets) >= 2)
-  estimator <- match.arg(estimator)
+  n_sets <- length(data_subsets)
+  subset_names <- names(data_subsets)
+  if (is.null(subset_names)) subset_names <- as.character(seq_len(n_sets))
   
-  # —— 基础准备 ——
-  G <- length(data_subsets)
-  if (is.null(condition_labels)) condition_labels <- paste0("Cond", seq_len(G))
-  stopifnot(length(condition_labels) == G)
-
-  if (is.null(var_names)) {
-    var_names <- colnames(as.data.frame(data_subsets[[1]]))
-  }
-
-  if (!is.null(cont_cols)) {
-    var_names <- intersect(var_names, cont_cols)
-  }
-
-  # 在所有条件数据集中筛除方差为0或有效观测数不足的变量
-  valid_cols_list <- lapply(data_subsets, function(D) {
-    D <- as.data.frame(D)
-    cols <- intersect(colnames(D), var_names)
-    cols[sapply(cols, function(cl) {
-      vec <- D[[cl]]
-      sum(!is.na(vec)) > 1 && stats::sd(vec, na.rm = TRUE) > 0
-    })]
+  # Standardize selected variables for each subset
+  scaled_subsets <- lapply(data_subsets, function(dat) {
+    scale(dat[, vars_for_NCT])
   })
-  common_cols <- Reduce(intersect, valid_cols_list)
-  removed_cols <- setdiff(var_names, common_cols)
-  if (length(removed_cols) > 0 && verbose) {
-    message("Dropping variables with zero variance or insufficient data: ",
-            paste(removed_cols, collapse = ", "))
-  }
-  var_names <- common_cols
-  if (length(var_names) < 2) {
-    stop("Not enough variables left for NCT after filtering")
-  }
-
-  # 逐条件预处理：列对齐、标准化
-  prep_one <- function(D) {
-    D <- as.data.frame(D)
-    D <- D[, var_names, drop = FALSE]
-    if (scale_data) {
-      D <- scale(D)
-    }
-    return(as.matrix(D))
-  }
-  data_subsets_prep <- lapply(data_subsets, prep_one)
-
-  var_names_sub <- var_names
-  p <- length(var_names_sub)
   
-  # —— 辅助：上三角 -> 边表
-  upper_to_edge_df <- function(M, vnames) {
-    idx <- which(upper.tri(M), arr.ind = TRUE)
-    tibble(
-      i   = idx[,1],
-      j   = idx[,2],
-      Var1 = vnames[idx[,1]],
-      Var2 = vnames[idx[,2]],
-      Weight = M[idx]
-    )
-  }
+  # Generate all condition pairs
+  pairs_idx <- combn(n_sets, 2)
   
-  # 结果容器
-  global_rows <- list()
-  edges_all_pairs <- list()
-  nct_objects <- list()
-  top_text <- list()
+  # Storage lists
+  nct_results <- list()
+  global_strength_list <- list()
+  network_structure_list <- list()
+  edge_diff_list <- list()
   
-  # 遍历所有条件对
-  pairs <- t(combn(G, 2))
-  for (r in seq_len(nrow(pairs))) {
-    a <- pairs[r, 1]
-    b <- pairs[r, 2]
-    lab_a <- condition_labels[a]
-    lab_b <- condition_labels[b]
+  for (i in seq_len(ncol(pairs_idx))) {
+    i1 <- pairs_idx[1, i]
+    i2 <- pairs_idx[2, i]
+    cat("Comparing", subset_names[i1], "vs", subset_names[i2], "\n")
+    pair_name <- paste0(i1, "_vs_", i2)
     
-    X1 <- as.matrix(data_subsets_prep[[a]])
-    X2 <- as.matrix(data_subsets_prep[[b]])
-    
-    if (verbose) cat(glue("\n[ NCT ] Comparing {lab_a} vs {lab_b} ...\n"))
-    
-    # ---- 估计器设置（关键改造）----
-    # NCT 支持 estimator = "EBICglasso" 或 "glasso"
-    # ---- 直接调用 NCT 避免 do.call 引发的 match.call 清洗错误 ----
-    if (estimator == "EBICglasso") {
-      nct_call <- quote(NCT(
-        data1 = X1, data2 = X2,
-        it = it,
-        paired = paired,
-        test.edges = test_edges,
-        edges = "all",
-        test.centrality = test_centrality,
-        centrality = centrality,
-        estimator = estimator,
-        AND = AND,
-        progressbar = verbose,
-        gamma = gamma
-      ))
-    } else { # glasso
-      # 若未提供 rho，则给一个保守默认值，并提示
-      if (is.null(estimatorArgs) || is.null(estimatorArgs$rho)) {
-        if (verbose) message("estimator='glasso' 未提供 rho，已使用默认 rho = 0.1。可通过 estimatorArgs=list(rho=...) 指定。")
-        estimatorArgs <- modifyList(list(rho = 0.1), estimatorArgs %||% list())
-      }
-      nct_call <- bquote(NCT(
-        data1 = X1, data2 = X2,
-        it = it,
-        paired = paired,
-        test.edges = test_edges,
-        edges = "all",
-        test.centrality = test_centrality,
-        centrality = centrality,
-        estimator = estimator,
-        AND = AND,
-        progressbar = verbose,
-        estimatorArgs = .(estimatorArgs)
-      ))
-    }
-
-
-    # 1) 运行 NCT
-    set.seed(123)
-    nct <- eval(nct_call)
-
-    nct_objects[[glue("{lab_a}_vs_{lab_b}")]] <- nct
-
-    # 2) 全局结果
-    global_rows[[r]] <- tibble(
-      Pair               = glue("{lab_a} - {lab_b}"),
-      p_global_strength  = if (!is.null(nct)) nct$glstrinv.pval else NA_real_,
-      p_structure        = if (!is.null(nct)) nct$nst.pval      else NA_real_
+    nct_res <- NCT(
+      data1 = scaled_subsets[[i1]],
+      data2 = scaled_subsets[[i2]],
+      gamma = gamma,
+      it = it,
+      test.edges = TRUE,
+      test.centrality = test.centrality,
+      paired = paired,
+      progressbar = progressbar   # 关闭进度条显示
     )
     
-    # 3) 为了给出具体“边权差值”，我们再估计一次两组网络权重矩阵：
-    #    - 若选择 EBICglasso：用 qgraph::EBICglasso（无需 rho）
-    #    - 若选择 glasso：    用 glasso()（需要 rho；已在上面保证存在）
-    if (estimator == "EBICglasso") {
-      S1 <- stats::cov(X1, use = "pairwise.complete.obs")
-      S2 <- stats::cov(X2, use = "pairwise.complete.obs")
-      S1 <- stats::cov2cor(matrix(S1, nrow = p, ncol = p))
-      S2 <- stats::cov2cor(matrix(S2, nrow = p, ncol = p))
-      W1 <- tryCatch(qgraph::EBICglasso(S1, n = nrow(X1), gamma = gamma),
-                     error = function(e) matrix(NA_real_, p, p))
-      W2 <- tryCatch(qgraph::EBICglasso(S2, n = nrow(X2), gamma = gamma),
-                     error = function(e) matrix(NA_real_, p, p))
-    } else { # glasso
-      if (!requireNamespace("glasso", quietly = TRUE)) {
-        stop("需要安装并加载 'glasso' 包：install.packages('glasso'); library(glasso)")
-      }
-      S1 <- stats::cov(X1, use = "pairwise.complete.obs")
-      S2 <- stats::cov(X2, use = "pairwise.complete.obs")
-      S1 <- matrix(S1, nrow = p, ncol = p)
-      S2 <- matrix(S2, nrow = p, ncol = p)
-      rho <- estimatorArgs$rho
-      W1 <- tryCatch({
-        out1 <- glasso::glasso(s = S1, rho = rho)
-        P1 <- out1$wi
-        R1 <- -P1 / sqrt(outer(diag(P1), diag(P1)))
-        diag(R1) <- 0
-        R1
-      }, error = function(e) matrix(NA_real_, p, p))
-      W2 <- tryCatch({
-        out2 <- glasso::glasso(s = S2, rho = rho)
-        P2 <- out2$wi
-        R2 <- -P2 / sqrt(outer(diag(P2), diag(P2)))
-        diag(R2) <- 0
-        R2
-      }, error = function(e) matrix(NA_real_, p, p))
+    nct_results[[pair_name]] <- nct_res
+    
+    # Global strength difference
+    global_strength_list[[pair_name]] <- data.frame(
+      condition_pair = pair_name,
+      network1_strength = nct_res$glstrinv.sep[1],
+      network2_strength = nct_res$glstrinv.sep[2],
+      strength_difference = nct_res$glstrinv.real,
+      p_value = nct_res$glstrinv.pval,
+      row.names = NULL
+    )
+    
+    # Network structure difference
+    network_structure_list[[pair_name]] <- data.frame(
+      condition_pair = pair_name,
+      structure_difference = nct_res$nwinv.real,
+      p_value = nct_res$nwinv.pval,
+      row.names = NULL
+    )
+    
+    # Edge differences - keep significant edges only
+    edge_df <- nct_res$einv.pvals
+    colnames(edge_df) <- c("Var1", "Var2", "p_value", "E")
+    edge_df <- subset(edge_df, p_value < alpha)
+    edge_df <- edge_df[order(edge_df$p_value), ]
+    if (nrow(edge_df) > 0) {
+      edge_df$condition_pair <- pair_name
+      edge_df <- edge_df[, c("condition_pair", "Var1", "Var2", "E", "p_value")]
     }
-    
-    df1 <- upper_to_edge_df(W1, var_names_sub) %>% rename(Weight_A = Weight)
-    df2 <- upper_to_edge_df(W2, var_names_sub) %>% rename(Weight_B = Weight)
-    
-    edge_df <- df1 %>%
-      inner_join(df2, by = c("i","j","Var1","Var2")) %>%
-      mutate(Diff_AB = Weight_A - Weight_B)
-    
-    # NCT 的单边 p 值（向量）→ 对应到上三角次序
-    if (test_edges && !is.null(nct$einv.pvals)) {
-      pvec <- as.numeric(nct$einv.pvals)
-      if (length(pvec) == nrow(edge_df)) {
-        edge_df$p_raw <- pvec
-      } else {
-        edge_df$p_raw <- NA_real_
-      }
-    } else {
-      edge_df$p_raw <- NA_real_
-    }
-    
-    # 每个“条件对”内部做多重校正
-    edge_df <- edge_df %>%
-      mutate(
-        p_adj = ifelse(is.na(p_raw), NA_real_, p.adjust(p_raw, method = p_adjust)),
-        Significant = ifelse(!is.na(p_adj) & p_adj < alpha, 1L, 0L),
-        Pair = glue("{lab_a} - {lab_b}")
-      ) %>%
-      select(Pair, Var1, Var2, Weight_A, Weight_B, Diff_AB, p_raw, p_adj, Significant) %>%
-      arrange(p_adj, desc(abs(Diff_AB)))
-    
-    edges_all_pairs[[r]] <- edge_df
-    
-    # 4) 文字 Top‑K 摘要
-    if (!is.null(top_k_edges) && top_k_edges > 0) {
-      top_df <- edge_df %>%
-        arrange(p_adj, desc(abs(Diff_AB))) %>%
-        slice_head(n = min(top_k_edges, n()))
-      lines <- purrr::pmap_chr(
-        list(top_df$Var1, top_df$Var2, top_df$Weight_A, top_df$Weight_B, top_df$Diff_AB, top_df$p_adj),
-        ~ glue("• {..1} — {..2}: w_A={round(..3,3)}, w_B={round(..4,3)}, diff={round(..5,3)}, p_adj={format(..6, digits=3)}")
-      )
-      block <- c(
-        glue("[Top {min(top_k_edges, nrow(top_df))}] {lab_a} vs {lab_b} 单边差异（按 p_adj / |diff| 排序）:"),
-        lines, ""
-      )
-      top_text[[length(top_text)+1]] <- block
-      if (verbose) cat(paste(block, collapse = "\n"))
-    }
+    edge_diff_list[[pair_name]] <- edge_df
   }
   
-  global_table <- bind_rows(global_rows)
-  edges_table  <- bind_rows(edges_all_pairs)
+  global_strength_table <- do.call(rbind, global_strength_list)
+  network_structure_table <- do.call(rbind, network_structure_list)
+  cat("All NCT comparisons completed.\n")
   
-  invisible(list(
-    global_table   = global_table,
-    edges_table    = edges_table,
-    top_edges_text = unlist(top_text),
-    nct_objects    = nct_objects
-  ))
+  list(
+    global_strength = global_strength_table,
+    network_structure = network_structure_table,
+    edge_differences = edge_diff_list,
+    nct_results = nct_results
+  )
 }
 
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#函数构建：一个数据集过采样函数（简单复制）
+#受不了了bootstrap总是报错，原来是数据集里面有一些分类变量的水平过少，采样采不到
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+# data_list : 由多个数据框组成的列表
+# cat_vars  : 需要检查/过采样的分类变量名向量
+# min_count : 每个水平至少保留的行数
+
+oversample_rare_levels_list <- function(data_list, cat_vars, min_count = 5) {
+  lapply(data_list, function(mat) {
+    res <- mat
+    for (v in cat_vars) {
+      col_vals <- res[, v]
+      counts <- table(col_vals)                        # 统计各水平数
+      rare_lvls <- as.numeric(names(counts[counts < min_count]))
+      if (length(rare_lvls) > 0) {
+        dup_rows <- lapply(rare_lvls, function(lvl) {
+          idx <- which(res[, v] == lvl)
+          need <- min_count - length(idx)              # 还需补多少
+          res[sample(idx, need, replace = TRUE), , drop = FALSE]
+        })
+        res <- rbind(res, do.call(rbind, dup_rows))    # 添加补充行
+      }
+    }
+    rownames(res) <- NULL
+    res
+  })
+}
+
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#函数构建：对nct结果进行绘图（绘制边权差异网络）————————————————————————————————————————————————————————————————————————————————————————————————————
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+# nct_results: run_nct_pairs(...) 返回的 $nct_results 列表
+# edge_differences: run_nct_pairs(...) 返回的 $edge_differences 列表
+# output_dir: 输出 PDF 所在目录
+
+plot_nct_pairs <- function(
+    nct_results, 
+    edge_differences, 
+    vars_name,
+    output_dir = "plot"
+    ) {
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+  }
+  
+  for (pair in names(nct_results)) {
+    res <- nct_results[[pair]]
+    diff_mat <- res$nw1 - res$nw2
+    
+    edge_df <- edge_differences[[pair]]
+    edge_colors <- matrix("grey80", nrow(diff_mat), ncol(diff_mat))
+    if (!is.null(edge_df) && nrow(edge_df) > 0) {
+      for (i in seq_len(nrow(edge_df))) {
+        v1 <- edge_df$Var1[i]
+        v2 <- edge_df$Var2[i]
+        edge_colors[v1, v2] <- edge_colors[v2, v1] <- "red"
+      }
+    }
+    
+    pdf(file.path(output_dir, paste0(pair, "_diff_network.pdf")))
+    qgraph(diff_mat,
+           layout      = "spring",
+           labels      = vars_name,
+           edge.color  = edge_colors,
+           edge.labels = TRUE,
+           label.cex   = 1.1,
+           title       = paste("Difference Network:", pair))
+    dev.off()
+    cat (paste0(pair,"的差异网络以存储为./plot/", pair,"_diff_network.pdf\n"))
+    qgraph(diff_mat,
+           layout      = "spring",
+           labels      = vars_name,
+           edge.color  = edge_colors,
+           edge.labels = TRUE,
+           label.cex   = 1.1,
+           title       = paste("Difference Network:", pair))
+  }
+}
+
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#函数构建：对不同条件下节点BEI差异的显著性检验————————————————————————————————————————————————————————————————————————————————————————————————————
+#调试中...
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+pairwise_BEI_ttest <- function(BEI_for_conditions,
+                               adjust_method = "bonferroni",
+                               paired        = TRUE,
+                               var.equal     = TRUE,
+                               min_n         = 2) {
+  
+  BEI_for_conditions %>%
+    mutate(
+      Node      = factor(Node),
+      Group     = factor(Group),
+      Condition = factor(Condition)
+    ) %>%
+    group_by(Node, Condition) %>%
+    mutate(n_obs = n()) %>%                 # 统计样本量
+    ungroup() %>%
+    group_by(Node) %>%
+    group_modify(~{
+      if (any(.x$n_obs < min_n)) {          # 若存在样本数不足的条件，跳过
+        return(tibble(
+          Level1 = character(),
+          Level2 = character(),
+          p_adj  = NA_real_,
+          note   = "样本数不足，未执行 t 检验"
+        ))
+      }
+      
+      # 所有条件水平组合
+      cond_levels <- levels(.x$Condition)
+      combs <- combn(cond_levels, 2, simplify = FALSE)
+      
+      # 对每一对条件运行 bruceR::TTEST
+      res <- map_dfr(combs, function(cc) {
+        dat_pair <- filter(.x, Condition %in% cc)
+        t_res <- TTEST(dat_pair,
+                       y         = "BEI",
+                       x         = "Condition",
+                       paired    = paired,
+                       var.equal = var.equal,
+                       factor.rev = FALSE)
+        tibble(
+          Level1 = cc[1],
+          Level2 = cc[2],
+          p      = t_res$p
+        )
+      })
+      
+      # 多重比较校正
+      res %>%
+        mutate(p_adj = p.adjust(p, method = adjust_method)) %>%
+        select(Level1, Level2, p_adj)
+    }) %>%
+    ungroup()
+}
+
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+
+
+
+
+
+#—————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#已遗弃
+#函数构建：文本输出三阶交互大小（调节作用）及各condition下对应边权——————————————————————————————————————————————————————————————————————————————————————————————————————————
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+summarize_moderation_text <- function(
+    mgm_fit,
+    data_mat,
+    moderation_df,         # data.frame: Var1, Var2, Weight, (可选) Sign
+    var_names,             # 含所有变量中文名/标签
+    moderator_index = 1,   # 调节变量列号（默认第1列）
+    moderator_name  = NULL,# 若不传，则用 var_names[moderator_index]
+    condition_values = NULL,       # 如 c(1,2,3)；缺省则从 data_mat[, moderator_index] 唯一值取
+    condition_labels = NULL,       # 如 c("Level 1","Level 2","Level 3")
+    cond_list = NULL,              # 可选：已预先计算好的 condition() 列表；传了就不再计算
+    digits = 3,                    # 小数位
+    top_k = NULL                   # 可选：只汇报 |Weight| 前K条调节作用
+) {
+  stopifnot(is.matrix(data_mat) || is.data.frame(data_mat))
+  if (is.null(moderator_name)) moderator_name <- var_names[moderator_index]
+  
+  # —— 0) 整理 moderation_df（允许 Var1/Var2 是名或索引） ——
+  idx_of <- function(v) if (is.numeric(v)) as.integer(v) else match(v, var_names)
+  if (!all(c("Var1","Var2","Weight") %in% names(moderation_df))) {
+    stop("moderation_df 需包含列: Var1, Var2, Weight，（可选）Sign")
+  }
+  moderation_df$Var1_idx <- idx_of(moderation_df$Var1)
+  moderation_df$Var2_idx <- idx_of(moderation_df$Var2)
+  if (anyNA(moderation_df$Var1_idx) || anyNA(moderation_df$Var2_idx)) {
+    stop("moderation_df$Var1 / Var2 无法在 var_names 中匹配。")
+  }
+  # 可选：只保留|Weight|前K条
+  if (!is.null(top_k)) {
+    ord <- order(abs(moderation_df$Weight), decreasing = TRUE)
+    moderation_df <- moderation_df[ord, , drop = FALSE]
+    moderation_df <- head(moderation_df, top_k)
+  }
+  
+  # —— 1) 准备条件水平与标签 ——
+  if (is.null(condition_values)) {
+    condition_values <- sort(unique(as.integer(data_mat[, moderator_index])))
+  }
+  if (is.null(condition_labels)) {
+    condition_labels <- paste0("Level ", condition_values)
+  }
+  if (length(condition_labels) != length(condition_values)) {
+    stop("condition_labels 与 condition_values 长度不一致。")
+  }
+  
+  # —— 2) condition()：如未提供 cond_list，则现算 ——
+  if (is.null(cond_list)) {
+    cond_list <- vector("list", length(condition_values))
+    for (i in seq_along(condition_values)) {
+      val <- condition_values[i]
+      cond_list[[i]] <- mgm::condition(
+        object = mgm_fit,
+        values = setNames(list(val), as.character(moderator_index))
+      )
+    }
+  }
+  
+  # —— 3) 提取每个条件下 A–B 的带符号边权，并逐条打印 ——
+  cat("\n================ 调节作用文字描述 ================\n")
+  res_rows <- list()
+  
+  for (r in seq_len(nrow(moderation_df))) {
+    i <- moderation_df$Var1_idx[r]
+    j <- moderation_df$Var2_idx[r]
+    A <- var_names[i]
+    B <- var_names[j]
+    mod_w <- moderation_df$Weight[r]
+    
+    # 每个条件的带符号边权
+    cond_weights <- numeric(length(cond_list))
+    for (cidx in seq_along(cond_list)) {
+      wadj  <- cond_list[[cidx]]$pairwise$wadj
+      signs <- cond_list[[cidx]]$pairwise$signs
+      w_ij  <- wadj[i, j]
+      s_ij  <- signs[i, j]
+      # 如果 sign 缺失或为0，按无符号处理；你也可以改成 NA
+      signed_w <- ifelse(is.na(s_ij) || s_ij == 0, NA_real_, w_ij * s_ij)
+      # 若 signs 缺失但 w 非零，你也可以直接用 w_ij（按需替换）
+      if (is.na(signed_w) && !is.na(w_ij) && w_ij != 0) signed_w <- w_ij
+      cond_weights[cidx] <- signed_w
+    }
+    
+    # —— 4) 文字框输出 ——
+    cat(sprintf("\n【%s】调节了：%s 与 %s 的关系；调节效应 = %.*f\n",
+                moderator_name, A, B, digits, mod_w))
+    for (cidx in seq_along(condition_values)) {
+      val_lab <- condition_labels[cidx]
+      wlab    <- ifelse(is.na(cond_weights[cidx]), "NA", sprintf("%.*f", digits, cond_weights[cidx]))
+      cat(sprintf(" - 在 %s 中：%s 与 %s 的边权 = %s\n", val_lab, A, B, wlab))
+    }
+    
+    # 存到结果表
+    row_list <- list(
+      Moderator      = moderator_name,
+      Var1           = A,
+      Var2           = B,
+      ModEffect      = round(mod_w, digits)
+    )
+    # 展开每个条件的边权
+    for (cidx in seq_along(condition_labels)) {
+      nm <- paste0("Edge_", condition_labels[cidx])
+      row_list[[nm]] <- ifelse(is.na(cond_weights[cidx]),
+                               NA_real_, round(cond_weights[cidx], digits))
+    }
+    res_rows[[r]] <- row_list
+  }
+  
+  # —— 5) 返回整洁结果表 ——
+  res_df <- do.call(rbind, lapply(res_rows, as.data.frame))
+  rownames(res_df) <- NULL
+  
+  cat("=================================================\n\n")
+  return(invisible(list(
+    table = res_df,
+    condition_values = condition_values,
+    condition_labels = condition_labels
+  )))
+}
+
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+#————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
