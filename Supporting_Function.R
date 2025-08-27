@@ -1156,10 +1156,10 @@ plot_conditions_topN <- function(
   # 自适应拼图布局：
   # ≤3：横排；>3：尽量方阵（ncol = ceiling(sqrt(G)))
   if (G <= 3) {
-    ncol <- G; nrow <- 1
+    n_cols <- G; n_rows <- 1
   } else {
-    ncol <- ceiling(sqrt(G))
-    nrow <- ceiling(G / ncol)
+    n_cols <- ceiling(sqrt(G))
+    n_rows <- ceiling(G / n_cols)
   }
   
   # 用 patchwork 拼接
@@ -1179,8 +1179,8 @@ plot_conditions_topN <- function(
   if (!is.null(save_pdf)) {
     # 确保目录存在
     dir.create(dirname(save_pdf), showWarnings = FALSE, recursive = TRUE)
-    total_width  <- width_per_col * ncol
-    total_height <- height_per_row * nrow
+    total_width  <- width_per_col * n_cols
+    total_height <- height_per_row * n_rows
     ggsave(save_pdf, combined_plot, width = total_width, height = total_height, dpi = 300)
     message("已保存：", save_pdf)
   }
@@ -1189,7 +1189,7 @@ plot_conditions_topN <- function(
     plots = plot_list,
     tables = edge_tables,
     combined_plot = combined_plot,
-    layout = list(nrow = nrow, ncol = ncol, y_limits = y_limits)
+    layout = list(nrow = n_rows, ncol = n_cols, y_limits = y_limits)
   ))
 }
 
