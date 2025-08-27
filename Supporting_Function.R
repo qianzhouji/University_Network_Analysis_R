@@ -1163,12 +1163,9 @@ plot_conditions_topN <- function(
   }
   
   # 用 patchwork 拼接
-  wrap_list <- plot_list[[1]]
-  if (G > 1) {
-    for (i in 2:G) wrap_list <- wrap_list | plot_list[[i]]
-  }
+  wrap_list <- wrap_plots(plot_list, ncol = ncol, nrow = nrow)
   # 加总标题（可按需外部再包一层）
-  combined_plot <- wrap_list + plot_layout(ncol = n_cols) +
+  combined_plot <- wrap_list + plot_layout(ncol = ncol, nrow = nrow) +
     plot_annotation(
       title = paste0("各条件网络的Top", top_n, "边 Bootstrap 置信区间对比"),
       theme = theme(
