@@ -1126,7 +1126,7 @@ plot_conditions_topN <- function(
       ci_max_vec[i] <- quantile(res_obj$bootParameters, probs = 0.975, na.rm = TRUE)
     }
     
-    # 调用你的新绘图函数（吃 resample 对象）
+    # 调用新绘图函数（吃 resample 对象）
     res_i <- plot_topN_bootstrap_edges(
       res_obj    = res_obj,
       mgm_fit    = mgm_fit_i,
@@ -1156,10 +1156,10 @@ plot_conditions_topN <- function(
   # 自适应拼图布局：
   # ≤3：横排；>3：尽量方阵（ncol = ceiling(sqrt(G)))
   if (G <= 3) {
-    n_cols <- G; n_rows <- 1
+    ncol <- G; nrow <- 1
   } else {
-    n_cols <- ceiling(sqrt(G))
-    n_rows <- ceiling(G / n_cols)
+    ncol <- as.numeric(ceiling(sqrt(G)))
+    nrow <- as.numeric(ceiling(G / ncol))
   }
   
   # 用 patchwork 拼接
@@ -1179,8 +1179,8 @@ plot_conditions_topN <- function(
   if (!is.null(save_pdf)) {
     # 确保目录存在
     dir.create(dirname(save_pdf), showWarnings = FALSE, recursive = TRUE)
-    total_width  <- width_per_col * n_cols
-    total_height <- height_per_row * n_rows
+    total_width  <- width_per_col * ncol
+    total_height <- height_per_row * nrow
     ggsave(save_pdf, combined_plot, width = total_width, height = total_height, dpi = 300)
     message("已保存：", save_pdf)
   }
@@ -1189,7 +1189,7 @@ plot_conditions_topN <- function(
     plots = plot_list,
     tables = edge_tables,
     combined_plot = combined_plot,
-    layout = list(nrow = n_rows, ncol = n_cols, y_limits = y_limits)
+    layout = list(nrow = nrow, ncol = ncol, y_limits = y_limits)
   ))
 }
 
@@ -1604,4 +1604,3 @@ summarize_moderation_text <- function(
 
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
 #————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
-
