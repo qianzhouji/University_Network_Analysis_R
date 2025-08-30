@@ -1,59 +1,417 @@
-# University_Network_Analysis_R
+# Supporting Functions
 
-its a R project on the moderation in learning habits and mental health among university students analysis
+The script `Supporting_Function.R` contains helper routines used throughout the project for network analysis. This document describes the functionality, required inputs, and return values of each function.
 
-## Supporting Functions / 支持函数
+## `plot_topN_bootstrap_edges`
+Visualize the most important edges from bootstrap resampling results.
 
-The repository includes `Supporting_Function.R` with custom functions for network analysis. Below is a bilingual summary of these helpers.
+**Usage**
+```r
+plot_topN_bootstrap_edges(res_obj, mgm_fit = NULL, var_names = NULL,
+                          top_n = 20, mode = c("abs","split","pos","neg"),
+                          top_pos = NULL, top_neg = NULL,
+                          main_title = "网络分析结果",
+                          subtitle = "Bootstrap 95%置信区间（TopN）",
+                          save_prefix = NULL, digits = 3,
+                          font_family = "myfont")
+```
 
-### `plot_topN_bootstrap_edges`
-- **EN**: Visualize the top N edges from mgm resample results with confidence intervals; supports filtering by absolute value or sign.
-- **中文**：对 mgm 重采样结果的边按绝对值或符号筛选 Top N，并以置信区间形式展示。
+**Arguments**
+- `res_obj`: Output from `mgm::resample()` containing bootstrap samples or quantiles.
+- `mgm_fit`: Optional `mgm` fit used for point estimates of edge weights.
+- `var_names`: Optional character vector of variable names; defaults to names inside `mgm_fit` or `V1..Vp`.
+- `top_n`: Number of edges to display when `mode` is `"abs"`, `"pos"` or `"neg"`. For `"split"`, it is divided between positive and negative edges.
+- `mode`: Selection method for edges. `"abs"` selects by absolute weight, `"pos"` and `"neg"` select by sign, `"split"` divides the list into positive and negative edges.
+- `top_pos`, `top_neg`: Counts of positive and negative edges when `mode = "split"`; defaults to half of `top_n` each.
+- `main_title`, `subtitle`: Plot titles.
+- `save_prefix`: If provided, a PDF plot is saved with this prefix.
+- `digits`: Number of digits used in saved tables (currently not written).
+- `font_family`: Font used in the plot.
 
-### `community_detection_and_plot`
-- **EN**: Perform Louvain community detection on weighted graphs and plot the network with an optional node–variable lookup table.
-- **中文**：使用 Louvain 算法在加权图中发现社群并绘图，可输出节点与变量对照表。
+**Returns**
+Invisibly returns a list containing:
+- `edge_stability`: Data frame with all pairwise edges and their confidence intervals.
+- `top_edges`: Data frame of the selected top edges.
+- `plot`: The `ggplot` object.
 
-### `compute_BEI_for_network` / `plot_BEI_results` / `compute_and_plot_BEI`
-- **EN**: Chain of functions to compute Bridge Expected Influence (BEI) for networks and visualize results across conditions.
-- **中文**：计算网络中每个节点的桥接预期影响力（BEI），并在多个条件下统一绘图。
+## `community_detection_and_plot`
+Perform Louvain community detection on a weighted network and visualise the result.
 
-### `plot_moderation_qgraph`
-- **EN**: Create qgraph plots highlighting three-way interactions by adding moderator nodes; supports top-K filtering and custom styling.
-- **中文**：在传统 pairwise 图上添加调节节点以展示三阶交互，可筛选权重最大的前 K 个调节作用并自定义样式。
+**Usage**
+```r
+community_detection_and_plot(wadj, signs, var_names,
+                             output_dic = TRUE,
+                             return_full = FALSE,
+                             save_path = NULL)
+```
 
-### `make_moderation_df`
-- **EN**: Extract specified three-way interactions from mgm fits into a tidy data frame for downstream visualization or summary.
-- **中文**：从 mgm 拟合对象中提取含指定调节变量的三阶交互，生成整洁数据框以便后续使用。
+**Arguments**
+- `wadj`: Adjacency matrix of edge weights.
+- `signs`: Matrix of edge signs from the `mgm` fit.
+- `var_names`: Character vector of node names.
+- `output_dic`: If `TRUE`, prints a node ID to variable name lookup table.
+- `return_full`: If `TRUE`, returns the graph and community objects; otherwise only the membership vector is returned.
+- `save_path`: Optional path to save the network plot as a PNG file.
 
-### `summarize_moderation_text`
-- **EN**: Produce textual summaries of moderation effects, listing effect sizes and condition-specific edge weights.
-- **中文**：以文字方式汇总调节效应，列出效应值及不同条件下对应的边权。
+**Returns**
+- When `return_full = TRUE`, a list with elements `graph`, `communities`, `group_vector`, and `node_map`.
+- Otherwise, a numeric vector specifying the community membership of each node.
 
-### `edge_difference_test`
-- **EN**: Compare bootstrap edge weights between conditions, returning differences and confidence intervals with optional Top-K filtering.
-- **中文**：比较不同条件的 bootstrap 边权，提供差值及置信区间，可按 Top K 进行筛选。
+## `compute_BEI_for_network`
+Calculate Bridge Expected Influence (BEI) for a single network.
 
-### `t_test_edge_diff`
-- **EN**: Conduct independent-sample t-tests on edge weights between two conditions and rank by significance.
-- **中文**：对两条件的边权做独立样本 t 检验，并按显著性排序。
+**Usage**
+```r
+compute_BEI_for_network(wadj, signs, group_vector, var_names = NULL)
+```
 
-### `run_mgm_per_condition`
-- **EN**: Fit mgm models separately for each level of a moderator, removing the moderator variable and handling type/level inference.
-- **中文**：按调节变量水平拆分数据并分别拟合 mgm 模型，可自动推断变量类型和水平。
+**Arguments**
+- `wadj`: Adjacency matrix of edge weights.
+- `signs`: Matrix of edge signs from the `mgm` fit.
+- `group_vector`: Numeric vector assigning each node to a community.
+- `var_names`: Optional character vector of node names; defaults to `V1..Vp`.
 
-### `run_bootstrap_for_conditions`
-- **EN**: Execute bootstrap for each condition’s mgm network, extracting significant edges and confidence intervals.
-- **中文**：对每个条件的 mgm 网络进行 bootstrap，提取显著边及其置信区间。
+**Returns**
+A data frame with columns:
+- `Node`: Node name.
+- `Group`: Community membership.
+- `BEI`: Sum of absolute edge weights connecting the node to other communities.
+The `Node` column is ordered so that nodes with larger BEI appear first in plots.
 
-### `run_mgm_and_bootstrap`
-- **EN**: Wrapper that combines condition-wise mgm fitting and bootstrap into a single workflow.
-- **中文**：封装 mgm 拟合与 bootstrap，以一键完成分条件网络估计和重采样。
+## `plot_BEI_results`
+Create bar plots of BEI values, optionally across multiple conditions.
 
-### `plot_conditions_topN`
-- **EN**: Generate unified plots of top N bootstrap edges for multiple conditions with optional shared y-axis.
-- **中文**：批量绘制多条件的 Top N CI 图，可选择统一 y 轴。
+**Usage**
+```r
+plot_BEI_results(BEI_df, plot_title = "Bridge Expected Influence (BEI) across Conditions")
+```
 
-### `multi_NCT_compare`
-- **EN**: Perform pairwise Network Comparison Tests across multiple conditions and summarize global and edge-wise differences.
-- **中文**：对多个条件执行两两网络比较检验，汇总全局和单边差异并可输出 Top K 摘要。函数会自动剔除在任一条件下方差为 0 或有效观测不足的变量，以避免比较时的数值问题。
+**Arguments**
+- `BEI_df`: Data frame generated by `compute_BEI_for_network` or a combined set across conditions. Should contain columns `Node`, `Group`, `BEI`, and optionally `Condition`.
+- `plot_title`: Title for the figure.
+
+**Returns**
+The `ggplot` object used to draw the bar chart (also printed to the active graphics device).
+
+## `compute_and_plot_BEI`
+Wrapper function that computes BEI for multiple condition-specific networks and plots the results.
+
+**Usage**
+```r
+compute_and_plot_BEI(cond_list, group_vector, var_names,
+                     condition_labels = NULL,
+                     plot_title = "Bridge Expected Influence (BEI) across Conditions",
+                     save_name = "BEI.pdf")
+```
+
+**Arguments**
+- `cond_list`: List of `mgm` fit objects, one per condition, excluding moderator variables.
+- `group_vector`: Community assignments for the shared set of nodes.
+- `var_names`: Names of the nodes (no moderator).
+- `condition_labels`: Optional character vector labelling each condition; defaults to `"Condition 1"`, `"Condition 2"`, etc.
+- `plot_title`: Title for the BEI plot.
+- `save_name`: File name for the PDF output saved in the `plot` directory.
+
+**Returns**
+Invisibly returns a list with:
+- `BEI_data`: Combined BEI data across all conditions.
+- `BEI_plot`: The generated `ggplot` object.
+
+This function also saves the plot to `plot/save_name` and prints a message indicating where the file was written.
+
+## `plot_moderation_qgraph`
+Draw a network graph that adds triangular moderator nodes to show moderation effects.
+
+**Usage**
+```r
+plot_moderation_qgraph(mgm_fit, var_names, moderator_index = 1,
+                        moderation_df = NULL, pairwise_wadj = NULL,
+                        pairwise_signs = NULL, top_k_mod = NULL,
+                        pos_edge_color = "#1E88E5", neg_edge_color = "#D81B60",
+                        mod_edge_color = "#6D6D6D", edge_alpha = 1,
+                        edge_labels_cex = 0.9, var_node_color = "white",
+                        mod_node_color = "#1F77B4", triangle_label = NULL,
+                        show_edge_labels = TRUE, edge_label_digits = 3,
+                        layout = "spring", vsize_vars = 6, vsize_mods = 6,
+                        main_title = "带调节作用的网络图")
+```
+
+**Arguments**
+- `mgm_fit`: Original `mgm` object containing pairwise weights and interactions.
+- `var_names`: Names of the non‑moderator variables.
+- `moderator_index`: Column index of the moderator variable within the data.
+- `moderation_df`: Optional data frame specifying moderated pairs (`Var1`, `Var2`, `Weight`, `Sign`). If `NULL`, the function extracts interactions from `mgm_fit`.
+- `pairwise_wadj`, `pairwise_signs`: Optional matrices of edge weights and signs; by default taken from `mgm_fit`.
+- `top_k_mod`: If supplied, only the top moderation effects by absolute weight are visualised.
+- `pos_edge_color`, `neg_edge_color`, `mod_edge_color`: Colours for positive, negative, and moderator edges.
+- `edge_alpha`, `edge_labels_cex`: Transparency and label size for edges.
+- `var_node_color`, `mod_node_color`: Fill colours for regular and moderator nodes.
+- `triangle_label`: Text label to place inside the triangular moderator node.
+- `show_edge_labels`: Whether to display moderation weights on edges.
+- `edge_label_digits`: Number of digits shown on edge labels.
+- `layout`: Layout algorithm passed to `qgraph`.
+- `vsize_vars`, `vsize_mods`: Node sizes for variables and moderator nodes.
+- `main_title`: Title for the plot.
+
+**Returns**
+Invisibly returns a list containing the expanded weight matrix and node/edge formatting used for the plot.
+
+## `make_moderation_df`
+Extract a tidy data frame of moderation effects from an `mgm` fit.
+
+**Usage**
+```r
+make_moderation_df(mgm_fit, var_names = NULL, moderator_index = 1,
+                   use = c("weightsAgg", "weights"), drop_duplicates = TRUE)
+```
+
+**Arguments**
+- `mgm_fit`: Fitted `mgm` model that includes three-way interactions.
+- `var_names`: Optional names for variables; otherwise numeric indices are used.
+- `moderator_index`: Index of the moderator variable.
+- `use`: Select whether aggregated weights (`"weightsAgg"`) or raw parameter weights (`"weights"`) are extracted.
+- `drop_duplicates`: If `TRUE`, repeated `(Var1, Var2)` pairs are averaged.
+
+**Returns**
+A data frame with columns `Var1`, `Var2`, `Weight`, and `Sign`, sorted by absolute weight.
+
+## `edge_difference_test`
+Compare edge strengths between all pairs of conditions using bootstrap resamples.
+
+**Usage**
+```r
+edge_difference_test(bootstrap_results_list, cond_list, var_names = NULL,
+                     condition_labels = NULL, conf_level = 0.95,
+                     top_k = NULL, signed = FALSE)
+```
+
+**Arguments**
+- `bootstrap_results_list`: List of `mgm::resample` outputs for each condition.
+- `cond_list`: Corresponding list of fitted `mgm` objects.
+- `var_names`: Optional variable names; inferred from `cond_list` if omitted.
+- `condition_labels`: Optional labels for each condition.
+- `conf_level`: Confidence level for bootstrap intervals.
+- `top_k`: If given, returns only the top edges ranked by absolute difference.
+- `signed`: Whether to compare signed edge weights instead of absolute weights.
+
+**Returns**
+A data frame listing pairwise condition comparisons with estimated differences, confidence intervals, and significance flags.
+
+## `t_test_edge_diff`
+Perform pairwise t‑tests on edge weights across multiple conditions.
+
+**Usage**
+```r
+t_test_edge_diff(cond_list, var_names, top_n = NULL, conf_level = 0.95)
+```
+
+**Arguments**
+- `cond_list`: List of condition‑specific networks produced by `mgm::condition`.
+- `var_names`: Names of variables shared by all networks.
+- `top_n`: Optional number of most significant edges to report.
+- `conf_level`: Confidence level used to flag significance.
+
+**Returns**
+A data frame containing edge labels, weights per condition, t statistics, and significance indicators.
+
+## `split_by_moderator`
+Separate a dataset into subsets according to the levels of a moderator variable.
+
+**Usage**
+```r
+split_by_moderator(data_mat, moderator_index = 1, var_names = NULL)
+```
+
+**Arguments**
+- `data_mat`: Original data matrix or data frame.
+- `moderator_index`: Column index of the moderator variable.
+- `var_names`: Optional names for all variables; defaults to column names of `data_mat`.
+
+**Returns**
+A list with `data_subsets` containing the data for each moderator level (excluding the moderator column) and `moderator_values` giving the observed levels.
+
+## `run_mgm_for_conditions`
+Fit separate MGM models for each subset generated by `split_by_moderator`.
+
+**Usage**
+```r
+run_mgm_for_conditions(data_subsets, maxit = 300000, lambdaSel = "EBIC",
+                       lambdaGam = 0.8, ruleReg = "OR", scale = TRUE,
+                       type_vec = NULL, level_vec = NULL, pbar = FALSE)
+```
+
+**Arguments**
+- `data_subsets`: List of data frames for each condition.
+- `maxit`, `lambdaSel`, `lambdaGam`, `ruleReg`, `scale`: Parameters passed to `mgm`.
+- `type_vec`, `level_vec`: Optional vectors specifying variable types and levels; inferred from the first subset if omitted.
+- `pbar`: Whether to show progress bars during fitting.
+
+**Returns**
+A list of fitted `mgm` objects, one per condition.
+
+## `run_bootstrap_for_conditions`
+Bootstrap each condition‑specific network and record significant edges.
+
+**Usage**
+```r
+run_bootstrap_for_conditions(cond_list, data_subsets, nB = 100,
+                             maxit = 300000, lambdaSel = "EBIC",
+                             lambdaGam = 0.8, ruleReg = "OR",
+                             top_k = NULL, pbar = FALSE)
+```
+
+**Arguments**
+- `cond_list`: List of `mgm` fits for each condition.
+- `data_subsets`: Data used for each condition.
+- `nB`: Number of bootstrap samples.
+- `maxit`, `lambdaSel`, `lambdaGam`, `ruleReg`: Parameters forwarded to `mgm::resample`.
+- `top_k`: Optional number of strongest significant edges to keep.
+- `pbar`: Whether to show progress bars.
+
+**Returns**
+A list with bootstrap results (`bootstrap_results_list`), a data frame of significant edges (`significant_edges_df`), and logical matrices marking significant edges per condition (`sig_list`).
+
+## `plot_conditions_topN`
+Display top‑`N` bootstrap confidence intervals for each condition in a patchwork grid.
+
+**Usage**
+```r
+plot_conditions_topN(bootstrap_results_list, cond_list = NULL,
+                     var_names = NULL, condition_labels = NULL,
+                     top_n = 20, mode = c("split","abs","pos","neg"),
+                     unify_y = TRUE, y_limits = NULL,
+                     main_prefix = "TopN边的95%CI - ",
+                     subtitle = "绝对边权TopN的Bootstrap 95%置信区间",
+                     font_family = "myfont", save_pdf = NULL,
+                     width_per_col = 16, height_per_row = 8)
+```
+
+**Arguments**
+- `bootstrap_results_list`: List of resample objects for each condition.
+- `cond_list`: Optional list of corresponding `mgm` fits to obtain edge signs.
+- `var_names`: Names of variables without the moderator.
+- `condition_labels`: Labels for each condition.
+- `top_n`: Number of edges to show per condition.
+- `mode`: Edge selection strategy passed to `plot_topN_bootstrap_edges`.
+- `unify_y`, `y_limits`: Control whether axes are standardised across plots.
+- `main_prefix`, `subtitle`, `font_family`: Text styling options.
+- `save_pdf`: Path to save the combined plot; if `NULL` the figure is not saved.
+- `width_per_col`, `height_per_row`: Dimensions used when saving the PDF.
+
+**Returns**
+A list containing the individual plots, the tables of edges used, the combined patchwork plot, and layout information.
+
+## `run_nct_pairs`
+Run the Network Comparison Test (NCT) for all pairs of data subsets.
+
+**Usage**
+```r
+run_nct_pairs(data_subsets, vars_for_NCT, gamma = 0.5, it = 100,
+              alpha = 0.05, test.centrality = FALSE,
+              paired = FALSE, progressbar = FALSE)
+```
+
+**Arguments**
+- `data_subsets`: List of data frames representing different conditions.
+- `vars_for_NCT`: Variables to include in the networks.
+- `gamma`, `it`: Parameters forwarded to `NCT`.
+- `alpha`: Significance threshold for edge differences.
+- `test.centrality`: Whether to assess centrality differences.
+- `paired`: Whether the data are paired across conditions.
+- `progressbar`: Display a progress bar during computations.
+
+**Returns**
+A list with tables summarising global strength and network structure differences, significant edge differences, and the full NCT results for each pair.
+
+## `oversample_rare_levels_list`
+Duplicate rows so that categorical levels with too few observations reach a minimum count.
+
+**Usage**
+```r
+oversample_rare_levels_list(data_list, cat_vars, min_count = 5)
+```
+
+**Arguments**
+- `data_list`: List of data frames to process.
+- `cat_vars`: Names of categorical variables to check.
+- `min_count`: Minimum number of observations required for each level.
+
+**Returns**
+A list of data frames with rare levels oversampled by simple duplication.
+
+## `plot_nct_pairs`
+Visualise difference networks produced by `run_nct_pairs`.
+
+**Usage**
+```r
+plot_nct_pairs(nct_results, edge_differences, vars_name,
+               output_dir = "plot")
+```
+
+**Arguments**
+- `nct_results`: List of NCT results for each condition pair.
+- `edge_differences`: Significant edge differences extracted from `run_nct_pairs`.
+- `vars_name`: Labels for nodes in the network plots.
+- `output_dir`: Directory in which PDF files will be saved.
+
+**Returns**
+No return value; PDF files are written and plots are also drawn to the active device.
+
+## `pairwise_BEI_ttest`
+Test for significant differences in BEI across conditions for each node.
+
+**Usage**
+```r
+pairwise_BEI_ttest(BEI_for_conditions, adjust_method = "bonferroni",
+                   paired = TRUE, var.equal = TRUE, min_n = 2)
+```
+
+**Arguments**
+- `BEI_for_conditions`: Data frame combining BEI values with columns `Node`, `Group`, `Condition`, and `BEI`.
+- `adjust_method`: Multiple comparison adjustment passed to `p.adjust`.
+- `paired`, `var.equal`: Parameters controlling the underlying t‑tests.
+- `min_n`: Minimum number of observations per condition required to run the test.
+
+**Returns**
+A data frame with pairwise comparisons of conditions for each node, including adjusted p‑values.
+
+## `clean_xlsx`
+Remove rows containing missing or infinite values from an Excel worksheet.
+
+**Usage**
+```r
+clean_xlsx(path, sheet = 1)
+```
+
+**Arguments**
+- `path`: File path to the Excel workbook (overwritten in place).
+- `sheet`: Worksheet index to read and clean.
+
+**Returns**
+No return value; the function overwrites the file with the cleaned data.
+
+## `summarize_moderation_text`
+Print a textual summary of moderation effects and edge weights under each condition. (Deprecated.)
+
+**Usage**
+```r
+summarize_moderation_text(mgm_fit, data_mat, moderation_df,
+                          var_names, moderator_index = 1,
+                          moderator_name = NULL, condition_values = NULL,
+                          condition_labels = NULL, cond_list = NULL,
+                          digits = 3, top_k = NULL)
+```
+
+**Arguments**
+- `mgm_fit`: Fitted `mgm` model from which moderated edges are derived.
+- `data_mat`: Original dataset including the moderator.
+- `moderation_df`: Data frame of moderated edges.
+- `var_names`: Variable names for all nodes.
+- `moderator_index`, `moderator_name`: Position and label of the moderator variable.
+- `condition_values`, `condition_labels`: Optional vectors defining moderator levels and their labels.
+- `cond_list`: Optional precomputed networks for each condition.
+- `digits`: Number of digits printed in the textual output.
+- `top_k`: If supplied, only the strongest moderation effects are reported.
+
+**Returns**
+Invisibly returns a list containing a summary table and the condition information; detailed descriptions are printed to the console.
