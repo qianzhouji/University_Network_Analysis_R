@@ -1,59 +1,121 @@
-# University_Network_Analysis_R
+# Supporting Functions
 
-its a R project on the moderation in learning habits and mental health among university students analysis
+The script `Supporting_Function.R` contains helper routines used throughout the project for network analysis. This document describes the functionality, required inputs, and return values of each function.
 
-## Supporting Functions / 支持函数
+## `plot_topN_bootstrap_edges`
+Visualize the most important edges from bootstrap resampling results.
 
-The repository includes `Supporting_Function.R` with custom functions for network analysis. Below is a bilingual summary of these helpers.
+**Usage**
+```r
+plot_topN_bootstrap_edges(res_obj, mgm_fit = NULL, var_names = NULL,
+                          top_n = 20, mode = c("abs","split","pos","neg"),
+                          top_pos = NULL, top_neg = NULL,
+                          main_title = "网络分析结果",
+                          subtitle = "Bootstrap 95%置信区间（TopN）",
+                          save_prefix = NULL, digits = 3,
+                          font_family = "myfont")
+```
 
-### `plot_topN_bootstrap_edges`
-- **EN**: Visualize the top N edges from mgm resample results with confidence intervals; supports filtering by absolute value or sign.
-- **中文**：对 mgm 重采样结果的边按绝对值或符号筛选 Top N，并以置信区间形式展示。
+**Arguments**
+- `res_obj`: Output from `mgm::resample()` containing bootstrap samples or quantiles.
+- `mgm_fit`: Optional `mgm` fit used for point estimates of edge weights.
+- `var_names`: Optional character vector of variable names; defaults to names inside `mgm_fit` or `V1..Vp`.
+- `top_n`: Number of edges to display when `mode` is `"abs"`, `"pos"` or `"neg"`. For `"split"`, it is divided between positive and negative edges.
+- `mode`: Selection method for edges. `"abs"` selects by absolute weight, `"pos"` and `"neg"` select by sign, `"split"` divides the list into positive and negative edges.
+- `top_pos`, `top_neg`: Counts of positive and negative edges when `mode = "split"`; defaults to half of `top_n` each.
+- `main_title`, `subtitle`: Plot titles.
+- `save_prefix`: If provided, a PDF plot is saved with this prefix.
+- `digits`: Number of digits used in saved tables (currently not written).
+- `font_family`: Font used in the plot.
 
-### `community_detection_and_plot`
-- **EN**: Perform Louvain community detection on weighted graphs and plot the network with an optional node–variable lookup table.
-- **中文**：使用 Louvain 算法在加权图中发现社群并绘图，可输出节点与变量对照表。
+**Returns**
+Invisibly returns a list containing:
+- `edge_stability`: Data frame with all pairwise edges and their confidence intervals.
+- `top_edges`: Data frame of the selected top edges.
+- `plot`: The `ggplot` object.
 
-### `compute_BEI_for_network` / `plot_BEI_results` / `compute_and_plot_BEI`
-- **EN**: Chain of functions to compute Bridge Expected Influence (BEI) for networks and visualize results across conditions.
-- **中文**：计算网络中每个节点的桥接预期影响力（BEI），并在多个条件下统一绘图。
+## `community_detection_and_plot`
+Perform Louvain community detection on a weighted network and visualise the result.
 
-### `plot_moderation_qgraph`
-- **EN**: Create qgraph plots highlighting three-way interactions by adding moderator nodes; supports top-K filtering and custom styling.
-- **中文**：在传统 pairwise 图上添加调节节点以展示三阶交互，可筛选权重最大的前 K 个调节作用并自定义样式。
+**Usage**
+```r
+community_detection_and_plot(wadj, signs, var_names,
+                             output_dic = TRUE,
+                             return_full = FALSE,
+                             save_path = NULL)
+```
 
-### `make_moderation_df`
-- **EN**: Extract specified three-way interactions from mgm fits into a tidy data frame for downstream visualization or summary.
-- **中文**：从 mgm 拟合对象中提取含指定调节变量的三阶交互，生成整洁数据框以便后续使用。
+**Arguments**
+- `wadj`: Adjacency matrix of edge weights.
+- `signs`: Matrix of edge signs from the `mgm` fit.
+- `var_names`: Character vector of node names.
+- `output_dic`: If `TRUE`, prints a node ID to variable name lookup table.
+- `return_full`: If `TRUE`, returns the graph and community objects; otherwise only the membership vector is returned.
+- `save_path`: Optional path to save the network plot as a PNG file.
 
-### `summarize_moderation_text`
-- **EN**: Produce textual summaries of moderation effects, listing effect sizes and condition-specific edge weights.
-- **中文**：以文字方式汇总调节效应，列出效应值及不同条件下对应的边权。
+**Returns**
+- When `return_full = TRUE`, a list with elements `graph`, `communities`, `group_vector`, and `node_map`.
+- Otherwise, a numeric vector specifying the community membership of each node.
 
-### `edge_difference_test`
-- **EN**: Compare bootstrap edge weights between conditions, returning differences and confidence intervals with optional Top-K filtering.
-- **中文**：比较不同条件的 bootstrap 边权，提供差值及置信区间，可按 Top K 进行筛选。
+## `compute_BEI_for_network`
+Calculate Bridge Expected Influence (BEI) for a single network.
 
-### `t_test_edge_diff`
-- **EN**: Conduct independent-sample t-tests on edge weights between two conditions and rank by significance.
-- **中文**：对两条件的边权做独立样本 t 检验，并按显著性排序。
+**Usage**
+```r
+compute_BEI_for_network(wadj, signs, group_vector, var_names = NULL)
+```
 
-### `run_mgm_per_condition`
-- **EN**: Fit mgm models separately for each level of a moderator, removing the moderator variable and handling type/level inference.
-- **中文**：按调节变量水平拆分数据并分别拟合 mgm 模型，可自动推断变量类型和水平。
+**Arguments**
+- `wadj`: Adjacency matrix of edge weights.
+- `signs`: Matrix of edge signs from the `mgm` fit.
+- `group_vector`: Numeric vector assigning each node to a community.
+- `var_names`: Optional character vector of node names; defaults to `V1..Vp`.
 
-### `run_bootstrap_for_conditions`
-- **EN**: Execute bootstrap for each condition’s mgm network, extracting significant edges and confidence intervals.
-- **中文**：对每个条件的 mgm 网络进行 bootstrap，提取显著边及其置信区间。
+**Returns**
+A data frame with columns:
+- `Node`: Node name.
+- `Group`: Community membership.
+- `BEI`: Sum of absolute edge weights connecting the node to other communities.
+The `Node` column is ordered so that nodes with larger BEI appear first in plots.
 
-### `run_mgm_and_bootstrap`
-- **EN**: Wrapper that combines condition-wise mgm fitting and bootstrap into a single workflow.
-- **中文**：封装 mgm 拟合与 bootstrap，以一键完成分条件网络估计和重采样。
+## `plot_BEI_results`
+Create bar plots of BEI values, optionally across multiple conditions.
 
-### `plot_conditions_topN`
-- **EN**: Generate unified plots of top N bootstrap edges for multiple conditions with optional shared y-axis.
-- **中文**：批量绘制多条件的 Top N CI 图，可选择统一 y 轴。
+**Usage**
+```r
+plot_BEI_results(BEI_df, plot_title = "Bridge Expected Influence (BEI) across Conditions")
+```
 
-### `multi_NCT_compare`
-- **EN**: Perform pairwise Network Comparison Tests across multiple conditions and summarize global and edge-wise differences.
-- **中文**：对多个条件执行两两网络比较检验，汇总全局和单边差异并可输出 Top K 摘要。函数会自动剔除在任一条件下方差为 0 或有效观测不足的变量，以避免比较时的数值问题。
+**Arguments**
+- `BEI_df`: Data frame generated by `compute_BEI_for_network` or a combined set across conditions. Should contain columns `Node`, `Group`, `BEI`, and optionally `Condition`.
+- `plot_title`: Title for the figure.
+
+**Returns**
+The `ggplot` object used to draw the bar chart (also printed to the active graphics device).
+
+## `compute_and_plot_BEI`
+Wrapper function that computes BEI for multiple condition-specific networks and plots the results.
+
+**Usage**
+```r
+compute_and_plot_BEI(cond_list, group_vector, var_names,
+                     condition_labels = NULL,
+                     plot_title = "Bridge Expected Influence (BEI) across Conditions",
+                     save_name = "BEI.pdf")
+```
+
+**Arguments**
+- `cond_list`: List of `mgm` fit objects, one per condition, excluding moderator variables.
+- `group_vector`: Community assignments for the shared set of nodes.
+- `var_names`: Names of the nodes (no moderator).
+- `condition_labels`: Optional character vector labelling each condition; defaults to `"Condition 1"`, `"Condition 2"`, etc.
+- `plot_title`: Title for the BEI plot.
+- `save_name`: File name for the PDF output saved in the `plot` directory.
+
+**Returns**
+Invisibly returns a list with:
+- `BEI_data`: Combined BEI data across all conditions.
+- `BEI_plot`: The generated `ggplot` object.
+
+This function also saves the plot to `plot/save_name` and prints a message indicating where the file was written.
+
